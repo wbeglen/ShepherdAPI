@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ShepherdAPI.Api/ShepherdAPI.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ShepherdAPI.Api.Tests/ShepherdAPI.Api.Tests.csproj" />
+  </Folder>
+</Solution>
