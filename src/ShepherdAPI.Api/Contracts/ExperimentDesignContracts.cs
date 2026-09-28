@@ -78,11 +78,3 @@ public class CreateScoreRuleRequest
     [MaxLength(300)] public string? RuleNotes { get; set; }
 }
 
-public class UpdateScoreRuleRequest
-{
-    [Range(0, 100)] public decimal WeightPercent { get; set; }
-    public int MinScore { get; set; }
-    public int MaxScore { get; set; }
-    public bool Active { get; set; }
-    [MaxLength(300)] public string? RuleNotes { get; set; }
-}

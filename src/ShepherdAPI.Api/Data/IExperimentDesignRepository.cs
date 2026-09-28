@@ -31,10 +31,16 @@ public interface IExperimentDesignRepository
     Task<bool> UpdateParameterAsync(Parameter parameter);
     Task<bool> DeleteParameterAsync(long id);
 
-    // ScoreRule
+    // ScoreRule — add/delete-only lifecycle; definitions are immutable after creation (no update).
+    /// <summary>Active (RowState = 'A') rules only — the normal selection list.</summary>
     Task<IReadOnlyList<ScoreRule>> GetScoreRulesByExperimentVersionAsync(long experimentVersionId);
+
+    /// <summary>Resolves a rule regardless of RowState, for historical/internal resolution of existing references.</summary>
     Task<ScoreRule?> GetScoreRuleAsync(int id);
+
+    /// <summary>Always creates an Active rule — RowState is left to the database default ('A').</summary>
     Task<int> CreateScoreRuleAsync(ScoreRule scoreRule);
-    Task<bool> UpdateScoreRuleAsync(ScoreRule scoreRule);
+
+    /// <summary>Soft-deletes: sets RowState = 'D'. Never physically removes the row. Idempotent — a no-op if already 'D'.</summary>
     Task<bool> DeleteScoreRuleAsync(int id);
 }

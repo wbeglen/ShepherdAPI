@@ -388,7 +388,8 @@ CREATE TABLE [dbo].[ScoreRule](
 	[MaxScore] [int] NOT NULL,
 	[Active] [bit] NOT NULL,
 	[RuleNotes] [nvarchar](300) NULL,
- CONSTRAINT [PK_ScoreRule] PRIMARY KEY CLUSTERED 
+	[RowState] [char](1) NOT NULL,
+ CONSTRAINT [PK_ScoreRule] PRIMARY KEY CLUSTERED
 (
 	[ScoreRuleID] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
@@ -422,6 +423,8 @@ GO
 ALTER TABLE [dbo].[Agent] ADD  CONSTRAINT [DF_Agent_Active]  DEFAULT ((1)) FOR [Active]
 GO
 ALTER TABLE [dbo].[Execution] ADD  CONSTRAINT [DF_Execution_AttemptNumber]  DEFAULT ((1)) FOR [AttemptNumber]
+GO
+ALTER TABLE [dbo].[ScoreRule] ADD  CONSTRAINT [DF_ScoreRule_RowState]  DEFAULT ('A') FOR [RowState]
 GO
 ALTER TABLE [dbo].[Artifact]  WITH CHECK ADD  CONSTRAINT [FK_Artifact_ArtifactType] FOREIGN KEY([ArtifactTypeID])
 REFERENCES [dbo].[ArtifactType] ([ArtifactTypeID])
@@ -544,6 +547,10 @@ GO
 ALTER TABLE [dbo].[ScoreRule]  WITH CHECK ADD  CONSTRAINT [scorerule_weightpercent_between_0_100] CHECK  (([WeightPercent]>=(0) AND [WeightPercent]<=(100)))
 GO
 ALTER TABLE [dbo].[ScoreRule] CHECK CONSTRAINT [scorerule_weightpercent_between_0_100]
+GO
+ALTER TABLE [dbo].[ScoreRule]  WITH CHECK ADD  CONSTRAINT [CK_ScoreRule_RowState] CHECK  (([RowState]='D' OR [RowState]='A'))
+GO
+ALTER TABLE [dbo].[ScoreRule] CHECK CONSTRAINT [CK_ScoreRule_RowState]
 GO
 USE [master]
 GO

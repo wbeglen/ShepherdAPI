@@ -29,6 +29,7 @@ public class DatabaseFixture : IAsyncLifetime
     public int AgentId { get; private set; }
     public int PhaseId { get; private set; }
     public int ScoreCategoryId { get; private set; }
+    public int ScoreCategoryId2 { get; private set; }
     public int ArtifactTypeId { get; private set; }
     public int RaterId { get; private set; }
 
@@ -130,6 +131,8 @@ public class DatabaseFixture : IAsyncLifetime
         PhaseId = await InsertAsync(connection, "INSERT INTO dbo.Phase (Name, Sequence) OUTPUT INSERTED.PhaseID VALUES ('Implementation', 1);");
         ScoreCategoryId = await InsertAsync(connection,
             "INSERT INTO dbo.ScoreCategory (Name, HigherIsBetter) OUTPUT INSERTED.ScoreCategoryID VALUES ('Correctness', 1);");
+        ScoreCategoryId2 = await InsertAsync(connection,
+            "INSERT INTO dbo.ScoreCategory (Name, HigherIsBetter) OUTPUT INSERTED.ScoreCategoryID VALUES ('Traceability', 1);");
         ArtifactTypeId = await InsertAsync(connection, "INSERT INTO dbo.ArtifactType (Name) OUTPUT INSERTED.ArtifactTypeID VALUES ('Screenshot');");
         RaterId = await InsertAsync(connection, "INSERT INTO dbo.Rater (Name, RaterType) OUTPUT INSERTED.RaterID VALUES ('TestRater', 'Human');");
     }

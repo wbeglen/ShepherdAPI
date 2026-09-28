@@ -191,8 +191,8 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
         var rows = await connection.QueryAsync<ScoreRule>(
             """
-            SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes
-            FROM dbo.ScoreRule WHERE ExperimentVersionID = @experimentVersionId ORDER BY PhaseID, ScoreCategoryID;
+            SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes, RowState
+            FROM dbo.ScoreRule WHERE ExperimentVersionID = @experimentVersionId AND RowState = 'A' ORDER BY PhaseID, ScoreCategoryID;
             """,
             new { experimentVersionId });
         return rows.AsList();
@@ -203,7 +203,7 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<ScoreRule>(
             """
-            SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes
+            SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes, RowState
             FROM dbo.ScoreRule WHERE ScoreRuleID = @id;
             """,
             new { id });
@@ -221,24 +221,12 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
             scoreRule);
     }
 
-    public async Task<bool> UpdateScoreRuleAsync(ScoreRule scoreRule)
-    {
-        using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            """
-            UPDATE dbo.ScoreRule
-            SET WeightPercent = @WeightPercent, MinScore = @MinScore, MaxScore = @MaxScore,
-                Active = @Active, RuleNotes = @RuleNotes
-            WHERE ScoreRuleID = @ScoreRuleID;
-            """,
-            scoreRule);
-        return rows > 0;
-    }
-
     public async Task<bool> DeleteScoreRuleAsync(int id)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync("DELETE FROM dbo.ScoreRule WHERE ScoreRuleID = @id;", new { id });
+        var rows = await connection.ExecuteAsync(
+            "UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = @id AND RowState = 'A';",
+            new { id });
         return rows > 0;
     }
 }

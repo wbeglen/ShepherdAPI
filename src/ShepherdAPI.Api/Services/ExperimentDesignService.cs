@@ -179,22 +179,7 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
         return await GetScoreRuleAsync(id);
     }
 
-    public async Task<ScoreRule> UpdateScoreRuleAsync(int id, UpdateScoreRuleRequest request)
-    {
-        var scoreRule = await GetScoreRuleAsync(id);
-        var owner = await GetExperimentVersionAsync(scoreRule.ExperimentVersionID);
-        EnsureUnlocked(owner);
-        EnsureScoreRange(request.MinScore, request.MaxScore);
-
-        scoreRule.WeightPercent = request.WeightPercent;
-        scoreRule.MinScore = request.MinScore;
-        scoreRule.MaxScore = request.MaxScore;
-        scoreRule.Active = request.Active;
-        scoreRule.RuleNotes = request.RuleNotes;
-        await repository.UpdateScoreRuleAsync(scoreRule);
-        return await GetScoreRuleAsync(id);
-    }
-
+    /// <summary>Soft-deletes (RowState = 'D'). Idempotent: a no-op if the rule is already deleted, per docs/ARCHITECTURE.md and the add/delete-only lifecycle.</summary>
     public async Task DeleteScoreRuleAsync(int id)
     {
         var scoreRule = await GetScoreRuleAsync(id);
