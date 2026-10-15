@@ -1,6 +1,6 @@
 USE [master]
 GO
-/****** Object:  Database [Experiments]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Database [Experiments]    Script Date: 10/15/2026 7:00:42 PM ******/
 CREATE DATABASE [Experiments]
  CONTAINMENT = NONE
  ON  PRIMARY 
@@ -86,7 +86,7 @@ ALTER DATABASE [Experiments] SET QUERY_STORE (OPERATION_MODE = READ_WRITE, CLEAN
 GO
 USE [Experiments]
 GO
-/****** Object:  Table [dbo].[Agent]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[Agent]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -108,7 +108,7 @@ CREATE TABLE [dbo].[Agent](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Artifact]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[Artifact]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -131,7 +131,7 @@ CREATE TABLE [dbo].[Artifact](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ArtifactType]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[ArtifactType]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -150,7 +150,7 @@ CREATE TABLE [dbo].[ArtifactType](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ETLSourceAudit]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[ETLSourceAudit]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -171,7 +171,7 @@ CREATE TABLE [dbo].[ETLSourceAudit](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Execution]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[Execution]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -196,7 +196,7 @@ CREATE TABLE [dbo].[Execution](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ExperimentVersion]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[ExperimentVersion]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -220,7 +220,7 @@ CREATE TABLE [dbo].[ExperimentVersion](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Iteration]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[Iteration]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -244,7 +244,7 @@ CREATE TABLE [dbo].[Iteration](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Parameter]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[Parameter]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -267,7 +267,7 @@ CREATE TABLE [dbo].[Parameter](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Phase]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[Phase]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -291,7 +291,7 @@ CREATE TABLE [dbo].[Phase](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Rater]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[Rater]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -311,7 +311,7 @@ CREATE TABLE [dbo].[Rater](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ScoreCategory]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[ScoreCategory]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -331,7 +331,7 @@ CREATE TABLE [dbo].[ScoreCategory](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ScoreObservation]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[ScoreObservation]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -357,7 +357,7 @@ CREATE TABLE [dbo].[ScoreObservation](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ScoreObservationEvidence]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[ScoreObservationEvidence]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -373,7 +373,7 @@ CREATE TABLE [dbo].[ScoreObservationEvidence](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ScoreObservationSnapshot]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[ScoreObservationSnapshot]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -391,7 +391,7 @@ CREATE TABLE [dbo].[ScoreObservationSnapshot](
 	[WeightPercent] [decimal](5, 2) NOT NULL,
 	[HigherIsBetter] [bit] NOT NULL,
 	[SnapshotUTC] [datetime2](3) NOT NULL,
- CONSTRAINT [PK_WeightedScore] PRIMARY KEY CLUSTERED 
+ CONSTRAINT [PK_ScoreObservationSnapshot] PRIMARY KEY CLUSTERED 
 (
 	[ExperimentVersionID] ASC,
 	[ExecutionID] ASC,
@@ -402,7 +402,7 @@ CREATE TABLE [dbo].[ScoreObservationSnapshot](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ScoreRule]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[ScoreRule]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -430,7 +430,7 @@ CREATE TABLE [dbo].[ScoreRule](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Status]    Script Date: 10/15/2026 4:55:25 PM ******/
+/****** Object:  Table [dbo].[Status]    Script Date: 10/15/2026 7:00:43 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -530,35 +530,35 @@ REFERENCES [dbo].[ScoreObservation] ([ScoreObservationID])
 GO
 ALTER TABLE [dbo].[ScoreObservationEvidence] CHECK CONSTRAINT [FK_ScoreObservation]
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_WeightedScore_Execution] FOREIGN KEY([ExecutionID])
+ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_ScoreObservationSnapshot_Execution] FOREIGN KEY([ExecutionID])
 REFERENCES [dbo].[Execution] ([ExecutionID])
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_WeightedScore_Execution]
+ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_ScoreObservationSnapshot_Execution]
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_WeightedScore_ExperimentVersion] FOREIGN KEY([ExperimentVersionID])
+ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_ScoreObservationSnapshot_ExperimentVersion] FOREIGN KEY([ExperimentVersionID])
 REFERENCES [dbo].[ExperimentVersion] ([ExperimentVersionID])
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_WeightedScore_ExperimentVersion]
+ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_ScoreObservationSnapshot_ExperimentVersion]
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_WeightedScore_Phase] FOREIGN KEY([PhaseID])
+ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_ScoreObservationSnapshot_Phase] FOREIGN KEY([PhaseID])
 REFERENCES [dbo].[Phase] ([PhaseID])
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_WeightedScore_Phase]
+ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_ScoreObservationSnapshot_Phase]
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_WeightedScore_ScoreCategory] FOREIGN KEY([ScoreCategoryID])
+ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_ScoreObservationSnapshot_ScoreCategory] FOREIGN KEY([ScoreCategoryID])
 REFERENCES [dbo].[ScoreCategory] ([ScoreCategoryID])
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_WeightedScore_ScoreCategory]
+ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_ScoreObservationSnapshot_ScoreCategory]
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_WeightedScore_ScoreObservation] FOREIGN KEY([ScoreObservationID])
+ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_ScoreObservationSnapshot_ScoreObservation] FOREIGN KEY([ScoreObservationID])
 REFERENCES [dbo].[ScoreObservation] ([ScoreObservationID])
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_WeightedScore_ScoreObservation]
+ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_ScoreObservationSnapshot_ScoreObservation]
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_WeightedScore_ScoreRule] FOREIGN KEY([ScoreRuleID])
+ALTER TABLE [dbo].[ScoreObservationSnapshot]  WITH CHECK ADD  CONSTRAINT [FK_ScoreObservationSnapshot_ScoreRule] FOREIGN KEY([ScoreRuleID])
 REFERENCES [dbo].[ScoreRule] ([ScoreRuleID])
 GO
-ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_WeightedScore_ScoreRule]
+ALTER TABLE [dbo].[ScoreObservationSnapshot] CHECK CONSTRAINT [FK_ScoreObservationSnapshot_ScoreRule]
 GO
 ALTER TABLE [dbo].[ScoreRule]  WITH CHECK ADD  CONSTRAINT [FK_ScoreRule_ExperimentVersion] FOREIGN KEY([ExperimentVersionID])
 REFERENCES [dbo].[ExperimentVersion] ([ExperimentVersionID])
