@@ -29,7 +29,11 @@ public class ConflictException(string message) : Exception(message);
 /// An application-detected failure that maps to a specific <see cref="ErrorCatalog"/> entry, for
 /// cases where service code (rather than a T-SQL THROW) is the one rejecting the request.
 /// </summary>
-public class CatalogException(ErrorEntry entry, string message) : Exception(message)
+public class CatalogException(ErrorEntry entry, string message, IReadOnlyDictionary<string, object?>? extensions = null)
+    : Exception(message)
 {
     public ErrorEntry Entry { get; } = entry;
+
+    /// <summary>Extra members written into the ProblemDetails body next to <c>code</c> (for example the rules behind an invalid configuration).</summary>
+    public IReadOnlyDictionary<string, object?> Extensions { get; } = extensions ?? new Dictionary<string, object?>();
 }

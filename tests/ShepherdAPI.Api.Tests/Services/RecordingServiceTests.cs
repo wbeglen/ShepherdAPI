@@ -69,6 +69,37 @@ public class RecordingServiceTests
     }
 
     [Fact]
+    public async Task CreateExecutionAsync_ThrowsNotFound_WhenTheIterationDoesNotExist_WithoutCallingTheProcedure()
+    {
+        _designRepository.Setup(r => r.GetIterationAsync(5)).ReturnsAsync((Iteration?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.CreateExecutionAsync(new CreateExecutionRequest { IterationID = 5 }));
+        _repository.Verify(r => r.CreateExecutionAsync(It.IsAny<Execution>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateExecutionAsync_ThrowsNotFound_WhenTheProcedureReportsTheIterationGone()
+    {
+        _designRepository.Setup(r => r.GetIterationAsync(5)).ReturnsAsync(new Iteration { IterationID = 5, ExperimentVersionID = 1 });
+        _repository.Setup(r => r.CreateExecutionAsync(It.IsAny<Execution>())).ReturnsAsync((long?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.CreateExecutionAsync(new CreateExecutionRequest { IterationID = 5 }));
+    }
+
+    [Fact]
+    public async Task CreateExecutionAsync_NoLongerChecksTheLockInTheServiceLayer_TheProcedureOwnsIt()
+    {
+        _designRepository.Setup(r => r.GetIterationAsync(5)).ReturnsAsync(new Iteration { IterationID = 5, ExperimentVersionID = 1 });
+        _repository.Setup(r => r.CreateExecutionAsync(It.IsAny<Execution>())).ReturnsAsync(42L);
+        _repository.Setup(r => r.GetExecutionAsync(42)).ReturnsAsync(new Execution { ExecutionID = 42, IterationID = 5 });
+
+        var created = await _sut.CreateExecutionAsync(new CreateExecutionRequest { IterationID = 5 });
+
+        Assert.Equal(42, created.ExecutionID);
+        _lockGuard.Verify(l => l.GetLockedUtcByIterationIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [Fact]
     public async Task CreateScoreObservationAsync_ThrowsRecordLocked_WhenGoverningExperimentVersionLocked()
     {
         var execution = new Execution { ExecutionID = 10 };

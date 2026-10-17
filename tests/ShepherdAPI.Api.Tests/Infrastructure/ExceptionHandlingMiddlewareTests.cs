@@ -75,6 +75,23 @@ public class ExceptionHandlingMiddlewareTests
     }
 
     [Fact]
+    public async Task CatalogException_WritesItsExtensionMembers_NextToTheCode()
+    {
+        var extensions = new Dictionary<string, object?>
+        {
+            ["actualWeightPercent"] = 90m,
+            ["scoreRules"] = new[] { new { scoreRuleID = 4 } },
+        };
+
+        var (status, body) = await RunAsync(new CatalogException(ErrorCatalog.InvalidRuleConfiguration, "bad total", extensions));
+
+        Assert.Equal(409, status);
+        Assert.Equal("invalid-rule-configuration", body.GetProperty("code").GetString());
+        Assert.Equal(90m, body.GetProperty("actualWeightPercent").GetDecimal());
+        Assert.Equal(4, body.GetProperty("scoreRules")[0].GetProperty("scoreRuleID").GetInt32());
+    }
+
+    [Fact]
     public async Task RetryableEntry_IsFlaggedRetryable()
     {
         var (status, body) = await RunAsync(new CatalogException(ErrorCatalog.RetryableConflict, "retry"));

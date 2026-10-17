@@ -54,10 +54,10 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
             ExperimentVersionID = version, Name = name, Value = "v",
         })).ParameterID;
 
-        async Task<int> NewRule(long version, int category) => (await design.CreateScoreRuleAsync(new CreateScoreRuleRequest
+        async Task<int> NewRule(long version, int category, decimal weight) => (await design.CreateScoreRuleAsync(new CreateScoreRuleRequest
         {
             ExperimentVersionID = version, PhaseID = fixture.PhaseId, ScoreCategoryID = category,
-            WeightPercent = 50m, MinScore = 0, MaxScore = 5, Active = true,
+            WeightPercent = weight, MinScore = 0, MaxScore = 5, Active = true,
         })).ScoreRuleID;
 
         async Task<long> NewExecution(long iteration, int attempt) => (await recording.CreateExecutionAsync(new CreateExecutionRequest
@@ -81,9 +81,10 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         var b = await NewVersion("GuardB");
         var c = await NewVersion("GuardC");
 
-        var ruleA1 = await NewRule(a, fixture.ScoreCategoryId);
-        var ruleA2 = await NewRule(a, fixture.ScoreCategoryId2);
-        var ruleB = await NewRule(b, fixture.ScoreCategoryId);
+        // Each version's rules total 100.00 so Executions can be created (Issue #1).
+        var ruleA1 = await NewRule(a, fixture.ScoreCategoryId, 50m);
+        var ruleA2 = await NewRule(a, fixture.ScoreCategoryId2, 50m);
+        var ruleB = await NewRule(b, fixture.ScoreCategoryId, 100m);
         var iterationA = await NewIteration(a, 1);
         var iterationA2 = await NewIteration(a, 2);
         var iterationB = await NewIteration(b, 1);

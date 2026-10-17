@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using ShepherdAPI.Api.Contracts;
 using ShepherdAPI.Api.Data;
 using ShepherdAPI.Api.Infrastructure;
@@ -25,11 +26,14 @@ public class RecordingService(
     public async Task<Execution> GetExecutionAsync(long id) =>
         await repository.GetExecutionAsync(id) ?? throw NotFound("Execution", id);
 
+    /// <summary>
+    /// Order of checks (Issue #1): iteration not found (404), then version locked (50100 version-locked),
+    /// then the phase's rule configuration (50200 invalid-rule-configuration). The lock and rule checks
+    /// run inside dbo.usp_CreateExecution, atomically with the insert.
+    /// </summary>
     public async Task<Execution> CreateExecutionAsync(CreateExecutionRequest request)
     {
-        _ = await designRepository.GetIterationAsync(request.IterationID) ?? throw NotFound("Iteration", request.IterationID);
-        var iterationLockedUtc = await lockGuard.GetLockedUtcByIterationIdAsync(request.IterationID);
-        EnsureUnlocked(iterationLockedUtc, "Iteration", request.IterationID);
+        var iteration = await designRepository.GetIterationAsync(request.IterationID) ?? throw NotFound("Iteration", request.IterationID);
 
         var execution = new Execution
         {
@@ -45,8 +49,23 @@ public class RecordingService(
             OutcomeNotes = request.OutcomeNotes,
             AttemptNumber = request.AttemptNumber,
         };
-        var id = await repository.CreateExecutionAsync(execution);
-        return await GetExecutionAsync(id);
+        long? id;
+        try
+        {
+            id = await repository.CreateExecutionAsync(execution);
+        }
+        catch (SqlException ex) when (ex.Number == ErrorCatalog.InvalidRuleConfiguration.SqlNumber)
+        {
+            // The procedure has already rolled back; read the rules afterwards purely to explain the refusal.
+            var activeRules = await designRepository.GetScoreRulesByExperimentVersionAsync(iteration.ExperimentVersionID);
+            throw new CatalogException(
+                ErrorCatalog.InvalidRuleConfiguration,
+                ex.Message,
+                ExecutionRuleConfiguration.Describe(iteration.ExperimentVersionID, request.PhaseID, activeRules));
+        }
+
+        // Null means the iteration vanished between the lookup above and the procedure's own check.
+        return await GetExecutionAsync(id ?? throw NotFound("Iteration", request.IterationID));
     }
 
     public async Task<Execution> UpdateExecutionRunFactsAsync(long id, UpdateExecutionRunFactsRequest request)

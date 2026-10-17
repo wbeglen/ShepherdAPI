@@ -140,13 +140,13 @@ public class DbErrorMappingIntegrationTests(DatabaseFixture fixture)
     public async Task ForeignKeyViolation_StaysTheGenericConstraintViolation()
     {
         var repository = new RecordingRepository(fixture.ConnectionFactory);
-        var orphan = new Models.Execution
+        var orphan = new Models.Artifact
         {
-            IterationID = long.MaxValue, AgentID = fixture.AgentId, PhaseID = fixture.PhaseId, StatusID = fixture.DraftStatusId,
-            StartUTC = DateTime.UtcNow, AttemptNumber = 1,
+            ExecutionID = long.MaxValue, ArtifactTypeID = fixture.ArtifactTypeId, OriginalName = "n", OriginalURI = "u", StoredURI = "u",
+            MimeType = "m", ByteLength = 1, SHA256 = new string('A', 64), ReceivedUTC = DateTime.UtcNow,
         };
 
-        var thrown = await Assert.ThrowsAsync<SqlException>(() => repository.CreateExecutionAsync(orphan));
+        var thrown = await Assert.ThrowsAsync<SqlException>(() => repository.CreateArtifactAsync(orphan));
 
         var (status, body) = await ExceptionHandlingMiddlewareTests.RunAsync(thrown);
         Assert.Equal(409, status);

@@ -25,7 +25,7 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
         return new RecordingService(recordingRepo, designRepo, lockGuard);
     }
 
-    private async Task<(Models.ExperimentVersion Version, Models.Iteration Iteration, Models.Execution Execution)> CreateBaseHierarchyAsync(
+    private async Task<(Models.ExperimentVersion Version, Models.Iteration Iteration, Models.Execution Execution, int RuleId)> CreateBaseHierarchyAsync(
         ExperimentDesignService designService, RecordingService recordingService)
     {
         var version = await designService.CreateExperimentVersionAsync(new CreateExperimentVersionRequest
@@ -36,6 +36,9 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
             EffectiveDateUTC = DateTime.UtcNow,
             Description = "Integration test experiment version.",
         });
+
+        // An Execution needs the phase's active rules to total 100.00 (Issue #1), so configure them first.
+        var ruleId = await CreateScoreRuleAsync(designService, version.ExperimentVersionID);
 
         var iteration = await designService.CreateIterationAsync(new CreateIterationRequest
         {
@@ -56,7 +59,7 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
             AttemptNumber = 1,
         });
 
-        return (version, iteration, execution);
+        return (version, iteration, execution, ruleId);
     }
 
     [Fact]
@@ -64,12 +67,12 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
     {
         var designService = CreateDesignService();
         var recordingService = CreateRecordingService(out _);
-        var (version, iteration, execution) = await CreateBaseHierarchyAsync(designService, recordingService);
+        var (version, iteration, execution, ruleId) = await CreateBaseHierarchyAsync(designService, recordingService);
 
         var observation = await recordingService.CreateScoreObservationAsync(new CreateScoreObservationRequest
         {
             ExecutionID = execution.ExecutionID,
-            ScoreRuleID = await CreateScoreRuleAsync(designService, version.ExperimentVersionID),
+            ScoreRuleID = ruleId,
             RaterID = fixture.RaterId,
             ObservedScore = 3.5m,
         });
@@ -114,11 +117,14 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
             ExperimentVersionID = version.ExperimentVersionID, Sequence = 2, IterationLabel = "Too late", Prompt = "Nope.",
         }));
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => recordingService.CreateExecutionAsync(new CreateExecutionRequest
+        // Execution creation is checked inside dbo.usp_CreateExecution, so a locked version comes back as the
+        // catalog's version-locked error (SQL 50100) rather than a service-layer RecordLockedException.
+        var lockedCreate = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => recordingService.CreateExecutionAsync(new CreateExecutionRequest
         {
             IterationID = iteration.IterationID, AgentID = fixture.AgentId, PhaseID = fixture.PhaseId, StatusID = fixture.DraftStatusId,
             StartUTC = DateTime.UtcNow, InterventionCount = 0, AttemptNumber = 2,
         }));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, lockedCreate.Number);
 
         await Assert.ThrowsAsync<RecordLockedException>(() => recordingService.UpdateScoreObservationContentAsync(
             observation.ScoreObservationID, new UpdateScoreObservationContentRequest { ObservedScore = 5.0m }));
@@ -141,7 +147,7 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
     {
         var designService = CreateDesignService();
         var recordingService = CreateRecordingService(out _);
-        var (_, _, execution) = await CreateBaseHierarchyAsync(designService, recordingService);
+        var (_, _, execution, _) = await CreateBaseHierarchyAsync(designService, recordingService);
 
         var completed = await recordingService.UpdateExecutionRunFactsAsync(execution.ExecutionID, new UpdateExecutionRunFactsRequest
         {

@@ -1,3 +1,4 @@
+using System.Data;
 using Dapper;
 using ShepherdAPI.Api.Models;
 
@@ -32,20 +33,28 @@ public class RecordingRepository(ISqlConnectionFactory connectionFactory) : IRec
             new { id });
     }
 
-    public async Task<long> CreateExecutionAsync(Execution execution)
+    public async Task<long?> CreateExecutionAsync(Execution execution)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        return await connection.QuerySingleAsync<long>(
-            """
-            INSERT INTO dbo.Execution
-                (IterationID, AgentID, PhaseID, StatusID, StartUTC, EndUTC, ModelUsed, InterfaceUsed,
-                 InterventionCount, OutcomeNotes, AttemptNumber)
-            VALUES
-                (@IterationID, @AgentID, @PhaseID, @StatusID, @StartUTC, @EndUTC, @ModelUsed, @InterfaceUsed,
-                 @InterventionCount, @OutcomeNotes, @AttemptNumber);
-            SELECT CAST(SCOPE_IDENTITY() AS bigint);
-            """,
-            execution);
+
+        var parameters = new DynamicParameters();
+        parameters.Add("@IterationID", execution.IterationID);
+        parameters.Add("@AgentID", execution.AgentID);
+        parameters.Add("@PhaseID", execution.PhaseID);
+        parameters.Add("@StatusID", execution.StatusID);
+        parameters.Add("@StartUTC", execution.StartUTC, DbType.DateTime2);
+        parameters.Add("@EndUTC", execution.EndUTC, DbType.DateTime2);
+        parameters.Add("@ModelUsed", execution.ModelUsed);
+        parameters.Add("@InterfaceUsed", execution.InterfaceUsed);
+        parameters.Add("@InterventionCount", execution.InterventionCount);
+        parameters.Add("@OutcomeNotes", execution.OutcomeNotes);
+        parameters.Add("@AttemptNumber", execution.AttemptNumber);
+        parameters.Add("@ExecutionID", dbType: DbType.Int64, direction: ParameterDirection.Output);
+        parameters.Add("@IterationFound", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+
+        await connection.ExecuteAsync("dbo.usp_CreateExecution", parameters, commandType: CommandType.StoredProcedure);
+
+        return parameters.Get<bool>("@IterationFound") ? parameters.Get<long?>("@ExecutionID") : null;
     }
 
     public async Task<bool> UpdateExecutionRunFactsAsync(long id, string? modelUsed, string? interfaceUsed, int interventionCount, string? outcomeNotes, DateTime? endUtc)

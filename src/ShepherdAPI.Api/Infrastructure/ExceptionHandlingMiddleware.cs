@@ -30,7 +30,7 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
         }
         catch (CatalogException ex)
         {
-            await WriteProblem(context, ex.Entry, ex.Message);
+            await WriteProblem(context, ex.Entry, ex.Message, extensions: ex.Extensions);
         }
         catch (ValidationAppException ex)
         {
@@ -55,7 +55,9 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
         }
     }
 
-    private static async Task WriteProblem(HttpContext context, ErrorEntry entry, string detail, string? traceId = null)
+    private static async Task WriteProblem(
+        HttpContext context, ErrorEntry entry, string detail, string? traceId = null,
+        IReadOnlyDictionary<string, object?>? extensions = null)
     {
         var problem = new ProblemDetails
         {
@@ -63,6 +65,13 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
             Title = entry.Title,
             Detail = detail,
         };
+        if (extensions is not null)
+        {
+            foreach (var (key, value) in extensions)
+            {
+                problem.Extensions[key] = value;
+            }
+        }
         problem.Extensions["code"] = entry.Code;
         if (entry.Retryable)
         {

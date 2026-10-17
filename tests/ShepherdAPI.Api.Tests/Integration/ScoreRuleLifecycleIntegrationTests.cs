@@ -32,12 +32,12 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
             Description = "ScoreRule lifecycle test.",
         })).ExperimentVersionID;
 
-    private CreateScoreRuleRequest NewRuleRequest(long experimentVersionId, int? scoreCategoryId = null) => new()
+    private CreateScoreRuleRequest NewRuleRequest(long experimentVersionId, int? scoreCategoryId = null, decimal weight = 50m) => new()
     {
         ExperimentVersionID = experimentVersionId,
         PhaseID = fixture.PhaseId,
         ScoreCategoryID = scoreCategoryId ?? fixture.ScoreCategoryId,
-        WeightPercent = 50m,
+        WeightPercent = weight,
         MinScore = 0,
         MaxScore = 5,
         Active = true,
@@ -107,7 +107,8 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
         var designService = CreateDesignService();
         var recordingService = CreateRecordingService();
         var experimentVersionId = await CreateExperimentVersionAsync(designService);
-        var rule = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId));
+        // The phase's active rules must total 100.00 before an Execution can be created (Issue #1).
+        var rule = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId, weight: 100m));
 
         var iteration = await designService.CreateIterationAsync(new CreateIterationRequest
         {
