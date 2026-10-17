@@ -32,16 +32,49 @@ public class ExperimentDesignServiceTests
     }
 
     [Fact]
-    public async Task UpdateExperimentVersionAsync_ThrowsRecordLocked_WhenAlreadyLocked()
+    public async Task UpdateExperimentVersionAsync_LeavesTheLockAndFreezeChecksToTheProcedure()
     {
-        var lockedUtc = DateTime.UtcNow;
-        var version = new ExperimentVersion { ExperimentVersionID = 1, LockedUTC = lockedUtc };
+        var version = new ExperimentVersion { ExperimentVersionID = 1, LockedUTC = DateTime.UtcNow };
         _repository.Setup(r => r.GetExperimentVersionAsync(1)).ReturnsAsync(version);
+        _repository.Setup(r => r.UpdateExperimentVersionAsync(1, "x", "v1", It.IsAny<DateTime>(), "d")).ReturnsAsync(true);
 
         var request = new UpdateExperimentVersionRequest { Name = "x", VersionLabel = "v1", Description = "d" };
+        var updated = await _sut.UpdateExperimentVersionAsync(1, request);
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => _sut.UpdateExperimentVersionAsync(1, request));
-        _repository.Verify(r => r.UpdateExperimentVersionAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<string>()), Times.Never);
+        // The service no longer pre-checks LockedUTC: a stale read here could not be trusted, so the
+        // procedure decides under the parent-version lock (and throws the catalog errors itself).
+        Assert.Equal(1, updated.ExperimentVersionID);
+        _repository.Verify(r => r.UpdateExperimentVersionAsync(1, "x", "v1", It.IsAny<DateTime>(), "d"), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateExperimentVersionAsync_ThrowsNotFound_WhenTheProcedureReportsItGone()
+    {
+        _repository.Setup(r => r.UpdateExperimentVersionAsync(7, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<string>())).ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _sut.UpdateExperimentVersionAsync(7, new UpdateExperimentVersionRequest { Name = "x", VersionLabel = "v1", Description = "d" }));
+    }
+
+    [Fact]
+    public async Task CreateIterationAsync_ThrowsNotFound_WhenTheProcedureReportsTheVersionGone()
+    {
+        _repository.Setup(r => r.CreateIterationAsync(It.IsAny<Iteration>())).ReturnsAsync((long?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _sut.CreateIterationAsync(new CreateIterationRequest { ExperimentVersionID = 9, Sequence = 1, IterationLabel = "i", Prompt = "p" }));
+    }
+
+    [Fact]
+    public async Task DeleteScoreRuleAsync_IsTheSoftDelete_AndThrowsNotFoundOnlyWhenTheRuleDoesNotExist()
+    {
+        _repository.Setup(r => r.SoftDeleteScoreRuleAsync(5)).ReturnsAsync(true);
+        _repository.Setup(r => r.SoftDeleteScoreRuleAsync(6)).ReturnsAsync(false);
+
+        await _sut.DeleteScoreRuleAsync(5);
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.DeleteScoreRuleAsync(6));
+
+        _repository.Verify(r => r.GetExperimentVersionAsync(It.IsAny<long>()), Times.Never);
     }
 
     [Fact]

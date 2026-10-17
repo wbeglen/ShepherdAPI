@@ -28,6 +28,7 @@ public class ErrorCatalogTests
         { "design-frozen", HttpStatusCode.Conflict, 50400 },
         { "score-rule-already-deleted", HttpStatusCode.Conflict, 50401 },
         { "score-rule-invalid-rowstate", HttpStatusCode.Conflict, 50402 },
+        { "execution-delete-rejected", HttpStatusCode.Conflict, 50403 },
         { "finalize-no-executions", HttpStatusCode.Conflict, 50500 },
         { "finalize-execution-not-ended", HttpStatusCode.Conflict, 50501 },
         { "finalize-execution-without-observation", HttpStatusCode.Conflict, 50502 },

@@ -1,3 +1,4 @@
+using System.Data;
 using Dapper;
 using ShepherdAPI.Api.Models;
 
@@ -41,17 +42,19 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
             new { name, versionLabel, statusId, effectiveDateUtc, description });
     }
 
+    /// <summary>Runs dbo.usp_UpdateExperimentVersion: lock, locked/frozen checks, then the update. False if the version does not exist.</summary>
     public async Task<bool> UpdateExperimentVersionAsync(long id, string name, string versionLabel, DateTime effectiveDateUtc, string description)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            """
-            UPDATE dbo.ExperimentVersion
-            SET Name = @name, VersionLabel = @versionLabel, EffectiveDateUTC = @effectiveDateUtc, Description = @description
-            WHERE ExperimentVersionID = @id;
-            """,
-            new { id, name, versionLabel, effectiveDateUtc, description });
-        return rows > 0;
+        var parameters = new DynamicParameters();
+        parameters.Add("@ExperimentVersionID", id);
+        parameters.Add("@Name", name);
+        parameters.Add("@VersionLabel", versionLabel);
+        parameters.Add("@EffectiveDateUTC", effectiveDateUtc, DbType.DateTime2);
+        parameters.Add("@Description", description);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_UpdateExperimentVersion", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@Found");
     }
 
     public async Task<bool> SetExperimentVersionStatusAsync(long id, int statusId)
@@ -101,37 +104,45 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
             new { id });
     }
 
-    public async Task<long> CreateIterationAsync(Iteration iteration)
+    public async Task<long?> CreateIterationAsync(Iteration iteration)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        return await connection.QuerySingleAsync<long>(
-            """
-            INSERT INTO dbo.Iteration (ExperimentVersionID, Sequence, IterationLabel, Prompt, Scenario, Notes)
-            VALUES (@ExperimentVersionID, @Sequence, @IterationLabel, @Prompt, @Scenario, @Notes);
-            SELECT CAST(SCOPE_IDENTITY() AS bigint);
-            """,
-            iteration);
+        var parameters = new DynamicParameters();
+        parameters.Add("@ExperimentVersionID", iteration.ExperimentVersionID);
+        parameters.Add("@Sequence", iteration.Sequence);
+        parameters.Add("@IterationLabel", iteration.IterationLabel);
+        parameters.Add("@Prompt", iteration.Prompt);
+        parameters.Add("@Scenario", iteration.Scenario);
+        parameters.Add("@Notes", iteration.Notes);
+        parameters.Add("@IterationID", dbType: DbType.Int64, direction: ParameterDirection.Output);
+        parameters.Add("@VersionFound", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_CreateIteration", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@VersionFound") ? parameters.Get<long?>("@IterationID") : null;
     }
 
     public async Task<bool> UpdateIterationAsync(Iteration iteration)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            """
-            UPDATE dbo.Iteration
-            SET Sequence = @Sequence, IterationLabel = @IterationLabel, Prompt = @Prompt,
-                Scenario = @Scenario, Notes = @Notes
-            WHERE IterationID = @IterationID;
-            """,
-            iteration);
-        return rows > 0;
+        var parameters = new DynamicParameters();
+        parameters.Add("@IterationID", iteration.IterationID);
+        parameters.Add("@Sequence", iteration.Sequence);
+        parameters.Add("@IterationLabel", iteration.IterationLabel);
+        parameters.Add("@Prompt", iteration.Prompt);
+        parameters.Add("@Scenario", iteration.Scenario);
+        parameters.Add("@Notes", iteration.Notes);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_UpdateIteration", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@Found");
     }
 
     public async Task<bool> DeleteIterationAsync(long id)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync("DELETE FROM dbo.Iteration WHERE IterationID = @id;", new { id });
-        return rows > 0;
+        var parameters = new DynamicParameters();
+        parameters.Add("@IterationID", id);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_DeleteIteration", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@Found");
     }
 
     // -- Parameter --------------------------------------------------------------
@@ -156,32 +167,43 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
             new { id });
     }
 
-    public async Task<long> CreateParameterAsync(Parameter parameter)
+    public async Task<long?> CreateParameterAsync(Parameter parameter)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        return await connection.QuerySingleAsync<long>(
-            """
-            INSERT INTO dbo.Parameter (ExperimentVersionID, Name, Value, Unit, Notes)
-            VALUES (@ExperimentVersionID, @Name, @Value, @Unit, @Notes);
-            SELECT CAST(SCOPE_IDENTITY() AS bigint);
-            """,
-            parameter);
+        var parameters = new DynamicParameters();
+        parameters.Add("@ExperimentVersionID", parameter.ExperimentVersionID);
+        parameters.Add("@Name", parameter.Name);
+        parameters.Add("@Value", parameter.Value);
+        parameters.Add("@Unit", parameter.Unit);
+        parameters.Add("@Notes", parameter.Notes);
+        parameters.Add("@ParameterID", dbType: DbType.Int64, direction: ParameterDirection.Output);
+        parameters.Add("@VersionFound", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_CreateParameter", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@VersionFound") ? parameters.Get<long?>("@ParameterID") : null;
     }
 
     public async Task<bool> UpdateParameterAsync(Parameter parameter)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            "UPDATE dbo.Parameter SET Name = @Name, Value = @Value, Unit = @Unit, Notes = @Notes WHERE ParameterID = @ParameterID;",
-            parameter);
-        return rows > 0;
+        var parameters = new DynamicParameters();
+        parameters.Add("@ParameterID", parameter.ParameterID);
+        parameters.Add("@Name", parameter.Name);
+        parameters.Add("@Value", parameter.Value);
+        parameters.Add("@Unit", parameter.Unit);
+        parameters.Add("@Notes", parameter.Notes);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_UpdateParameter", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@Found");
     }
 
     public async Task<bool> DeleteParameterAsync(long id)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync("DELETE FROM dbo.Parameter WHERE ParameterID = @id;", new { id });
-        return rows > 0;
+        var parameters = new DynamicParameters();
+        parameters.Add("@ParameterID", id);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_DeleteParameter", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@Found");
     }
 
     // -- ScoreRule ----------------------------------------------------------------
@@ -209,24 +231,31 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
             new { id });
     }
 
-    public async Task<int> CreateScoreRuleAsync(ScoreRule scoreRule)
+    public async Task<int?> CreateScoreRuleAsync(ScoreRule scoreRule)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        return await connection.QuerySingleAsync<int>(
-            """
-            INSERT INTO dbo.ScoreRule (ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes)
-            VALUES (@ExperimentVersionID, @PhaseID, @ScoreCategoryID, @WeightPercent, @MinScore, @MaxScore, @Active, @RuleNotes);
-            SELECT CAST(SCOPE_IDENTITY() AS int);
-            """,
-            scoreRule);
+        var parameters = new DynamicParameters();
+        parameters.Add("@ExperimentVersionID", scoreRule.ExperimentVersionID);
+        parameters.Add("@PhaseID", scoreRule.PhaseID);
+        parameters.Add("@ScoreCategoryID", scoreRule.ScoreCategoryID);
+        parameters.Add("@WeightPercent", scoreRule.WeightPercent, DbType.Decimal, precision: 5, scale: 2);
+        parameters.Add("@MinScore", scoreRule.MinScore);
+        parameters.Add("@MaxScore", scoreRule.MaxScore);
+        parameters.Add("@Active", scoreRule.Active);
+        parameters.Add("@RuleNotes", scoreRule.RuleNotes);
+        parameters.Add("@ScoreRuleID", dbType: DbType.Int32, direction: ParameterDirection.Output);
+        parameters.Add("@VersionFound", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_CreateScoreRule", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@VersionFound") ? parameters.Get<int?>("@ScoreRuleID") : null;
     }
 
-    public async Task<bool> DeleteScoreRuleAsync(int id)
+    public async Task<bool> SoftDeleteScoreRuleAsync(int id)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            "UPDATE dbo.ScoreRule SET RowState = @deleted WHERE ScoreRuleID = @id AND RowState = @active;",
-            new { id, deleted = RowState.Deleted, active = RowState.Active });
-        return rows > 0;
+        var parameters = new DynamicParameters();
+        parameters.Add("@ScoreRuleID", id);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_SoftDeleteScoreRule", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@Found");
     }
 }

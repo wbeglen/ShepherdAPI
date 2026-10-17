@@ -23,7 +23,13 @@ public class ExperimentVersionsController(IExperimentDesignService service) : Co
         return CreatedAtAction(nameof(GetById), new { id = created.ExperimentVersionID }, created);
     }
 
-    /// <summary>Updates descriptive fields only. Rejected with 409 once LockedUTC is set (docs/ARCHITECTURE.md §5.3).</summary>
+    /// <summary>
+    /// Updates descriptive fields only (Name, VersionLabel, EffectiveDateUTC, Description). Rejected with 409
+    /// version-locked once LockedUTC is set, and with 409 design-frozen once the version has any Execution.
+    /// </summary>
+    [ProducesResponseType(typeof(ExperimentVersion), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [HttpPut("{id:long}")]
     public async Task<ActionResult<ExperimentVersion>> Update(long id, UpdateExperimentVersionRequest request) =>
         Ok(await service.UpdateExperimentVersionAsync(id, request));

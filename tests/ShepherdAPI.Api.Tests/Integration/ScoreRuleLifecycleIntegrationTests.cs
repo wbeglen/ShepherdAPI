@@ -88,14 +88,17 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
     }
 
     [Fact]
-    public async Task DeleteScoreRuleAsync_IsIdempotent_WhenCalledTwice()
+    public async Task DeleteScoreRuleAsync_IsNotIdempotent_ASecondDeleteIsTheAlreadyDeletedError()
     {
         var designService = CreateDesignService();
         var experimentVersionId = await CreateExperimentVersionAsync(designService);
         var rule = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId));
 
         await designService.DeleteScoreRuleAsync(rule.ScoreRuleID);
-        await designService.DeleteScoreRuleAsync(rule.ScoreRuleID); // must not throw
+
+        // Issue #4 replaced the idempotent no-op with an explicit already-deleted error (50401).
+        var ex = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => designService.DeleteScoreRuleAsync(rule.ScoreRuleID));
+        Assert.Equal(50401, ex.Number);
 
         var resolved = await designService.GetScoreRuleAsync(rule.ScoreRuleID);
         Assert.Equal(RowState.Deleted.ToString(), resolved.RowState);
@@ -124,7 +127,9 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
             ExecutionID = execution.ExecutionID, ScoreRuleID = rule.ScoreRuleID, RaterID = fixture.RaterId, ObservedScore = 4,
         });
 
-        // Retire the rule after it has already been used for scoring.
+        // Retire the rule after it has already been used for scoring. The version has an Execution, so it is
+        // live (Issue #4) until it is finalized; the soft-delete is permitted once it is locked.
+        await designService.LockExperimentVersionAsync(experimentVersionId, new LockExperimentVersionRequest { StatusID = fixture.DraftStatusId });
         await designService.DeleteScoreRuleAsync(rule.ScoreRuleID);
 
         // The existing observation, and its reference to the now-retired rule, remain fully valid.

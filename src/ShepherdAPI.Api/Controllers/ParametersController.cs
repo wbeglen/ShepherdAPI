@@ -17,6 +17,9 @@ public class ParametersController(IExperimentDesignService service) : Controller
     [HttpGet("{id:long}")]
     public async Task<ActionResult<Parameter>> GetById(long id) => Ok(await service.GetParameterAsync(id));
 
+    [ProducesResponseType(typeof(Parameter), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [HttpPost]
     public async Task<ActionResult<Parameter>> Create(CreateParameterRequest request)
     {
@@ -24,10 +27,16 @@ public class ParametersController(IExperimentDesignService service) : Controller
         return CreatedAtAction(nameof(GetById), new { id = created.ParameterID }, created);
     }
 
+    [ProducesResponseType(typeof(Parameter), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [HttpPut("{id:long}")]
     public async Task<ActionResult<Parameter>> Update(long id, UpdateParameterRequest request) =>
         Ok(await service.UpdateParameterAsync(id, request));
 
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id)
     {

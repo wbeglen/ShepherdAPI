@@ -20,6 +20,8 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
     private const int IdentityChange = 50101;
     private static int _phaseSequence = 5000;
 
+    // Versions A and B carry Executions, so their design is frozen (Issue #4). Version D has design rows only and
+    // no Executions, so it is where design-table guard behavior on an UNFROZEN, unlocked version is exercised.
     private sealed record Ctx(
         long VersionA, long VersionB, long VersionC,
         long IterationA, long IterationA2, long IterationB,
@@ -28,7 +30,8 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         long ExecutionA, long ExecutionA2, long ExecutionA3, long ExecutionB,
         long ObservationA, long ObservationA2, long ObservationB,
         long ArtifactA, long ArtifactA2, long ArtifactB,
-        int Agent2, int Phase2, int Rater2, int Category3, int Category4, int ArtifactType2);
+        int Agent2, int Phase2, int Rater2, int Category3, int Category4, int ArtifactType2,
+        long VersionD, long IterationD, long ParameterD, long ParameterD2, int RuleD);
 
     // ---------------------------------------------------------------- setup helpers
 
@@ -80,6 +83,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         var a = await NewVersion("GuardA");
         var b = await NewVersion("GuardB");
         var c = await NewVersion("GuardC");
+        var d = await NewVersion("GuardD");
 
         // Each version's rules total 100.00 so Executions can be created (Issue #1).
         var ruleA1 = await NewRule(a, fixture.ScoreCategoryId, 50m);
@@ -88,6 +92,14 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         var iterationA = await NewIteration(a, 1);
         var iterationA2 = await NewIteration(a, 2);
         var iterationB = await NewIteration(b, 1);
+        var ruleD = await NewRule(d, fixture.ScoreCategoryId, 100m);
+        var iterationD = await NewIteration(d, 1);
+        var parameterD = await NewParameter(d, "p1");
+        var parameterD2 = await NewParameter(d, "p2");
+        // Parameters belong to the design, which freezes at the first Execution (Issue #4), so create them first.
+        var parameterA = await NewParameter(a, "p1");
+        var parameterA2 = await NewParameter(a, "p2");
+        var parameterB = await NewParameter(b, "p1");
         var executionA = await NewExecution(iterationA, 1);
         var executionA2 = await NewExecution(iterationA, 2);
         var executionA3 = await NewExecution(iterationA, 3);
@@ -104,7 +116,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         return new Ctx(
             a, b, c,
             iterationA, iterationA2, iterationB,
-            await NewParameter(a, "p1"), await NewParameter(a, "p2"), await NewParameter(b, "p1"),
+            parameterA, parameterA2, parameterB,
             ruleA1, ruleA2, ruleB,
             executionA, executionA2, executionA3, executionB,
             observationA, observationA2, observationB,
@@ -114,7 +126,8 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
             Rater2: await ScalarAsync<int>("INSERT dbo.Rater (Name, RaterType) OUTPUT INSERTED.RaterID VALUES (@n, 'Human');", new { n = "Rater" + Guid.NewGuid().ToString("N") }),
             Category3: await ScalarAsync<int>("INSERT dbo.ScoreCategory (Name, HigherIsBetter) OUTPUT INSERTED.ScoreCategoryID VALUES (@n, 1);", new { n = "Cat" + Guid.NewGuid().ToString("N") }),
             Category4: await ScalarAsync<int>("INSERT dbo.ScoreCategory (Name, HigherIsBetter) OUTPUT INSERTED.ScoreCategoryID VALUES (@n, 1);", new { n = "Cat" + Guid.NewGuid().ToString("N") }),
-            ArtifactType2: await ScalarAsync<int>("INSERT dbo.ArtifactType (Name) OUTPUT INSERTED.ArtifactTypeID VALUES (@n);", new { n = "Type" + Guid.NewGuid().ToString("N") }));
+            ArtifactType2: await ScalarAsync<int>("INSERT dbo.ArtifactType (Name) OUTPUT INSERTED.ArtifactTypeID VALUES (@n);", new { n = "Type" + Guid.NewGuid().ToString("N") }),
+            VersionD: d, IterationD: iterationD, ParameterD: parameterD, ParameterD2: parameterD2, RuleD: ruleD);
     }
 
     private async Task<T> ScalarAsync<T>(string sql, object? parameters = null)
@@ -217,7 +230,6 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
             ("ScoreRule delete", $"DELETE dbo.ScoreRule WHERE ScoreRuleID = {c.RuleA2};"),
             ("Execution insert", $"INSERT dbo.Execution (IterationID, AgentID, PhaseID, StatusID, StartUTC, InterventionCount, AttemptNumber) VALUES ({c.IterationA}, {fixture.AgentId}, {fixture.PhaseId}, {fixture.DraftStatusId}, SYSUTCDATETIME(), 0, 9);"),
             ("Execution update", $"UPDATE dbo.Execution SET OutcomeNotes = N'x' WHERE ExecutionID = {c.ExecutionA};"),
-            ("Execution delete", $"DELETE dbo.Execution WHERE ExecutionID = {c.ExecutionA3};"),
             ("ScoreObservation insert", $"INSERT dbo.ScoreObservation (ExecutionID, ScoreRuleID, RaterID, ObservedScore) VALUES ({c.ExecutionA3}, {c.RuleA1}, {fixture.RaterId}, 1);"),
             ("ScoreObservation update", $"UPDATE dbo.ScoreObservation SET ObservationNotes = N'x' WHERE ScoreObservationID = {c.ObservationA};"),
             ("ScoreObservation delete", $"DELETE dbo.ScoreObservation WHERE ScoreObservationID = {c.ObservationA2};"),
@@ -264,19 +276,20 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         await ExecAsync($"UPDATE dbo.ExperimentVersion SET StatusID = {fixture.RetiredStatusId} WHERE ExperimentVersionID = {c.VersionA};");
         Assert.Equal(fixture.RetiredStatusId, await ScalarAsync<int>($"SELECT StatusID FROM dbo.ExperimentVersion WHERE ExperimentVersionID = {c.VersionA};"));
 
-        // Version B is untouched by A's lock: every kind of write still works.
+        // Versions B and D are untouched by A's lock: every kind of write still works (design writes on D, which has
+        // no Executions; recording writes on B).
         await ExecAsync($"""
-            UPDATE dbo.ExperimentVersion SET Name = N'renamed-B', Description = N'edited' WHERE ExperimentVersionID = {c.VersionB};
-            INSERT dbo.Iteration (ExperimentVersionID, Sequence, IterationLabel, Prompt) VALUES ({c.VersionB}, 2, N'x', N'x');
-            UPDATE dbo.Iteration SET Notes = N'n' WHERE ExperimentVersionID = {c.VersionB} AND Sequence = 2;
-            DELETE dbo.Iteration WHERE ExperimentVersionID = {c.VersionB} AND Sequence = 2;
-            UPDATE dbo.Parameter SET Value = N'new' WHERE ParameterID = {c.ParameterB};
-            UPDATE dbo.ScoreRule SET WeightPercent = 60 WHERE ScoreRuleID = {c.RuleB};
+            UPDATE dbo.ExperimentVersion SET Name = N'renamed-D', Description = N'edited' WHERE ExperimentVersionID = {c.VersionD};
+            INSERT dbo.Iteration (ExperimentVersionID, Sequence, IterationLabel, Prompt) VALUES ({c.VersionD}, 2, N'x', N'x');
+            UPDATE dbo.Iteration SET Notes = N'n' WHERE ExperimentVersionID = {c.VersionD} AND Sequence = 2;
+            DELETE dbo.Iteration WHERE ExperimentVersionID = {c.VersionD} AND Sequence = 2;
+            UPDATE dbo.Parameter SET Value = N'new' WHERE ParameterID = {c.ParameterD};
+            UPDATE dbo.ScoreRule SET WeightPercent = 60 WHERE ScoreRuleID = {c.RuleD};
             UPDATE dbo.Execution SET OutcomeNotes = N'o', EndUTC = SYSUTCDATETIME() WHERE ExecutionID = {c.ExecutionB};
             UPDATE dbo.ScoreObservation SET ObservedScore = 4, ObservationNotes = N'n' WHERE ScoreObservationID = {c.ObservationB};
             UPDATE dbo.ScoreObservationEvidence SET EvidenceNotes = N'n' WHERE ScoreObservationID = {c.ObservationB} AND ArtifactID = {c.ArtifactB};
             """);
-        Assert.Equal("renamed-B", await ScalarAsync<string>($"SELECT Name FROM dbo.ExperimentVersion WHERE ExperimentVersionID = {c.VersionB};"));
+        Assert.Equal("renamed-D", await ScalarAsync<string>($"SELECT Name FROM dbo.ExperimentVersion WHERE ExperimentVersionID = {c.VersionD};"));
     }
 
     [Fact]
@@ -287,7 +300,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         await LockAsync(c.VersionC);
 
         await RejectedAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = NULL WHERE ExperimentVersionID = {c.VersionC};", VersionLocked);
-        await RejectedAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {c.VersionC} AND 1 = 1 AND LockedUTC IS NOT NULL;", VersionLocked);
+        await RejectedAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = DATEADD(SECOND, 1, LockedUTC) WHERE ExperimentVersionID = {c.VersionC} AND LockedUTC IS NOT NULL;", VersionLocked);
     }
 
     // ---------------------------------------------------------------- multirow statements
@@ -297,21 +310,21 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
     {
         var c = await BuildAsync();
         // OUTPUT without INTO is not allowed on a trigger-guarded table; SCOPE_IDENTITY() is.
-        var extraB = await ScalarAsync<long>(
-            $"INSERT dbo.Parameter (ExperimentVersionID, Name) VALUES ({c.VersionB}, N'extraB'); SELECT CAST(SCOPE_IDENTITY() AS bigint);");
+        var extraD = await ScalarAsync<long>(
+            $"INSERT dbo.Parameter (ExperimentVersionID, Name) VALUES ({c.VersionD}, N'extraD'); SELECT CAST(SCOPE_IDENTITY() AS bigint);");
         await LockAsync(c.VersionA);
 
-        await RejectedAsync($"INSERT dbo.Parameter (ExperimentVersionID, Name) VALUES ({c.VersionB}, N'mixB'), ({c.VersionA}, N'mixA');", VersionLocked);
-        Assert.Equal(0, await ScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Parameter WHERE Name = N'mixB' AND ExperimentVersionID = {c.VersionB};"));
+        await RejectedAsync($"INSERT dbo.Parameter (ExperimentVersionID, Name) VALUES ({c.VersionD}, N'mixD'), ({c.VersionA}, N'mixA');", VersionLocked);
+        Assert.Equal(0, await ScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Parameter WHERE Name = N'mixD' AND ExperimentVersionID = {c.VersionD};"));
 
-        await RejectedAsync($"UPDATE dbo.Parameter SET Notes = N'mixed' WHERE ExperimentVersionID IN ({c.VersionA}, {c.VersionB});", VersionLocked);
+        await RejectedAsync($"UPDATE dbo.Parameter SET Notes = N'mixed' WHERE ExperimentVersionID IN ({c.VersionA}, {c.VersionD});", VersionLocked);
         Assert.Equal(0, await ScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Parameter WHERE Notes = N'mixed';"));
 
-        await RejectedAsync($"DELETE dbo.Parameter WHERE ParameterID IN ({c.ParameterA2}, {extraB});", VersionLocked);
-        Assert.Equal(1, await ScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Parameter WHERE ParameterID = {extraB};"));
+        await RejectedAsync($"DELETE dbo.Parameter WHERE ParameterID IN ({c.ParameterA2}, {extraD});", VersionLocked);
+        Assert.Equal(1, await ScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Parameter WHERE ParameterID = {extraD};"));
 
         // The same multirow shapes are fine when every owner is unlocked.
-        await ExecAsync($"UPDATE dbo.Parameter SET Notes = N'both' WHERE ParameterID IN ({c.ParameterB}, {extraB});");
+        await ExecAsync($"UPDATE dbo.Parameter SET Notes = N'both' WHERE ParameterID IN ({c.ParameterD}, {extraD});");
         Assert.Equal(2, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Parameter WHERE Notes = N'both';"));
     }
 
@@ -324,14 +337,14 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
         var ex = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync($"""
             BEGIN TRANSACTION;
-            INSERT dbo.Parameter (ExperimentVersionID, Name) VALUES ({c.VersionB}, N'rolled-back');
+            INSERT dbo.Parameter (ExperimentVersionID, Name) VALUES ({c.VersionD}, N'rolled-back');
             INSERT dbo.Parameter (ExperimentVersionID, Name) VALUES ({c.VersionA}, N'rejected');
             COMMIT;
             """));
 
         Assert.Equal(VersionLocked, ex.Number);
         Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT @@TRANCOUNT;"));
-        Assert.Equal(0, await connection.QuerySingleAsync<int>($"SELECT COUNT(*) FROM dbo.Parameter WHERE Name = N'rolled-back' AND ExperimentVersionID = {c.VersionB};"));
+        Assert.Equal(0, await connection.QuerySingleAsync<int>($"SELECT COUNT(*) FROM dbo.Parameter WHERE Name = N'rolled-back' AND ExperimentVersionID = {c.VersionD};"));
     }
 
     // ---------------------------------------------------------------- identity and ownership
@@ -406,13 +419,13 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         var c = await BuildAsync();
 
         await ExecAsync($"""
-            UPDATE dbo.Iteration SET Notes = N'n', Prompt = N'p2' WHERE IterationID = {c.IterationA};
-            UPDATE dbo.Parameter SET Value = N'v2', Unit = N'u' WHERE ParameterID = {c.ParameterA};
-            UPDATE dbo.ScoreRule SET WeightPercent = 40, RuleNotes = N'n' WHERE ScoreRuleID = {c.RuleA1};
+            UPDATE dbo.Iteration SET Notes = N'n', Prompt = N'p2' WHERE IterationID = {c.IterationD};
+            UPDATE dbo.Parameter SET Value = N'v2', Unit = N'u' WHERE ParameterID = {c.ParameterD};
+            UPDATE dbo.ScoreRule SET WeightPercent = 40, RuleNotes = N'n' WHERE ScoreRuleID = {c.RuleD};
             UPDATE dbo.Execution SET OutcomeNotes = N'o', EndUTC = SYSUTCDATETIME(), ModelUsed = N'm' WHERE ExecutionID = {c.ExecutionA};
             UPDATE dbo.ScoreObservation SET ObservedScore = 5, ObservationNotes = N'n' WHERE ScoreObservationID = {c.ObservationA};
             UPDATE dbo.ScoreObservationEvidence SET EvidenceNotes = N'n' WHERE ScoreObservationID = {c.ObservationA} AND ArtifactID = {c.ArtifactA};
-            UPDATE dbo.ExperimentVersion SET Description = N'edited' WHERE ExperimentVersionID = {c.VersionA};
+            UPDATE dbo.ExperimentVersion SET Description = N'edited' WHERE ExperimentVersionID = {c.VersionD};
             """);
     }
 
@@ -624,7 +637,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
 
             using var writer = await fixture.CreateConnectionFactory(300).CreateOpenConnectionAsync();
             var ex = await Assert.ThrowsAsync<SqlException>(() =>
-                writer.ExecuteAsync("dbo.usp_TestControlledWrite", new { First = c.VersionA, Second = c.VersionB }, commandType: CommandType.StoredProcedure));
+                writer.ExecuteAsync("dbo.usp_TestControlledWrite", new { First = c.VersionD, Second = c.VersionB }, commandType: CommandType.StoredProcedure));
             blockerTransaction.Rollback();
 
             await AssertRetryableAsync(ex, 1222);

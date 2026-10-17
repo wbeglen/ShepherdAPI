@@ -106,16 +106,20 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
         Assert.NotNull(locked.LockedUTC);
 
         // Everything governed by the lock now rejects mutation and creation.
-        await Assert.ThrowsAsync<RecordLockedException>(() => designService.UpdateExperimentVersionAsync(
+        // Design writes are checked inside their controlled-write procedures (Issue #4), so a locked version comes
+        // back as the catalog's version-locked error (SQL 50100), reported before the design-frozen check.
+        var lockedUpdate0 = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => designService.UpdateExperimentVersionAsync(
             version.ExperimentVersionID, new UpdateExperimentVersionRequest
             {
                 Name = version.Name, VersionLabel = version.VersionLabel, EffectiveDateUTC = version.EffectiveDateUTC, Description = "changed",
             }));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, lockedUpdate0.Number);
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => designService.CreateIterationAsync(new CreateIterationRequest
+        var lockedIteration = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => designService.CreateIterationAsync(new CreateIterationRequest
         {
             ExperimentVersionID = version.ExperimentVersionID, Sequence = 2, IterationLabel = "Too late", Prompt = "Nope.",
         }));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, lockedIteration.Number);
 
         // Execution creation is checked inside dbo.usp_CreateExecution, so a locked version comes back as the
         // catalog's version-locked error (SQL 50100) rather than a service-layer RecordLockedException.

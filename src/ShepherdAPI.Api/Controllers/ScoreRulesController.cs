@@ -23,6 +23,9 @@ public class ScoreRulesController(IExperimentDesignService service) : Controller
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ScoreRule>> GetById(int id) => Ok(await service.GetScoreRuleAsync(id));
 
+    [ProducesResponseType(typeof(ScoreRule), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [HttpPost]
     public async Task<ActionResult<ScoreRule>> Create(CreateScoreRuleRequest request)
     {
@@ -30,8 +33,17 @@ public class ScoreRulesController(IExperimentDesignService service) : Controller
         return CreatedAtAction(nameof(GetById), new { id = created.ScoreRuleID }, created);
     }
 
-    /// <summary>Retires the rule (RowState = 'D'). Does not physically delete it — existing historical references remain valid.</summary>
+    /// <summary>
+    /// The dedicated ScoreRule soft-delete: changes only RowState ('A' to 'D') and returns 204. The row is never
+    /// physically deleted, so historical references stay valid. Not idempotent: an already-deleted rule is 409
+    /// score-rule-already-deleted and any other RowState is 409 score-rule-invalid-rowstate. A live version (it has
+    /// Executions and is not locked) is 409 design-frozen; this is checked before RowState. A version with no
+    /// Executions, or a locked one, permits the delete.
+    /// </summary>
     [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Delete(int id)
     {
         await service.DeleteScoreRuleAsync(id);

@@ -6,10 +6,11 @@ using ShepherdAPI.Api.Models;
 namespace ShepherdAPI.Api.Services;
 
 /// <summary>
-/// Business rules for the experiment design aggregate. The single invariant enforced everywhere
-/// here is docs/ARCHITECTURE.md §5.3: once ExperimentVersion.LockedUTC is set, the ExperimentVersion
-/// row itself and everything it governs (Iteration, Parameter, ScoreRule) is immutable through
-/// ShepherdAPI — StatusID is the sole exception, so lifecycle state can still move to e.g. Retired.
+/// Business rules for the experiment design aggregate. Design writes (ExperimentVersion fields and
+/// Iteration, Parameter and ScoreRule create/update/delete) are performed by controlled-write procedures
+/// that take the parent-version lock and reject the write when the version is locked (version-locked) or
+/// already has an Execution (design-frozen, Issue #4). This service only resolves 404s and shapes the rows.
+/// StatusID is exempt from both rules, so lifecycle state can still move to e.g. Retired.
 /// </summary>
 public class ExperimentDesignService(IExperimentDesignRepository repository) : IExperimentDesignService
 {
@@ -27,10 +28,11 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
 
     public async Task<ExperimentVersion> UpdateExperimentVersionAsync(long id, UpdateExperimentVersionRequest request)
     {
-        var current = await GetExperimentVersionAsync(id);
-        EnsureUnlocked(current);
+        if (!await repository.UpdateExperimentVersionAsync(id, request.Name, request.VersionLabel, request.EffectiveDateUTC, request.Description))
+        {
+            throw NotFound("ExperimentVersion", id);
+        }
 
-        await repository.UpdateExperimentVersionAsync(id, request.Name, request.VersionLabel, request.EffectiveDateUTC, request.Description);
         return await GetExperimentVersionAsync(id);
     }
 
@@ -65,9 +67,6 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
 
     public async Task<Iteration> CreateIterationAsync(CreateIterationRequest request)
     {
-        var owner = await GetExperimentVersionAsync(request.ExperimentVersionID);
-        EnsureUnlocked(owner);
-
         var iteration = new Iteration
         {
             ExperimentVersionID = request.ExperimentVersionID,
@@ -77,32 +76,33 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
             Scenario = request.Scenario,
             Notes = request.Notes,
         };
-        var id = await repository.CreateIterationAsync(iteration);
+        var id = await repository.CreateIterationAsync(iteration) ?? throw NotFound("ExperimentVersion", request.ExperimentVersionID);
         return await GetIterationAsync(id);
     }
 
     public async Task<Iteration> UpdateIterationAsync(long id, UpdateIterationRequest request)
     {
         var iteration = await GetIterationAsync(id);
-        var owner = await GetExperimentVersionAsync(iteration.ExperimentVersionID);
-        EnsureUnlocked(owner);
 
         iteration.Sequence = request.Sequence;
         iteration.IterationLabel = request.IterationLabel;
         iteration.Prompt = request.Prompt;
         iteration.Scenario = request.Scenario;
         iteration.Notes = request.Notes;
-        await repository.UpdateIterationAsync(iteration);
+        if (!await repository.UpdateIterationAsync(iteration))
+        {
+            throw NotFound("Iteration", id);
+        }
+
         return await GetIterationAsync(id);
     }
 
     public async Task DeleteIterationAsync(long id)
     {
-        var iteration = await GetIterationAsync(id);
-        var owner = await GetExperimentVersionAsync(iteration.ExperimentVersionID);
-        EnsureUnlocked(owner);
-
-        await repository.DeleteIterationAsync(id);
+        if (!await repository.DeleteIterationAsync(id))
+        {
+            throw NotFound("Iteration", id);
+        }
     }
 
     // -- Parameter --------------------------------------------------------------
@@ -114,9 +114,6 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
 
     public async Task<Parameter> CreateParameterAsync(CreateParameterRequest request)
     {
-        var owner = await GetExperimentVersionAsync(request.ExperimentVersionID);
-        EnsureUnlocked(owner);
-
         var parameter = new Parameter
         {
             ExperimentVersionID = request.ExperimentVersionID,
@@ -125,30 +122,31 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
             Unit = request.Unit,
             Notes = request.Notes,
         };
-        var id = await repository.CreateParameterAsync(parameter);
+        var id = await repository.CreateParameterAsync(parameter) ?? throw NotFound("ExperimentVersion", request.ExperimentVersionID);
         return await GetParameterAsync(id);
     }
 
     public async Task<Parameter> UpdateParameterAsync(long id, UpdateParameterRequest request)
     {
         var parameter = await GetParameterAsync(id);
-        var owner = await GetExperimentVersionAsync(parameter.ExperimentVersionID);
-        EnsureUnlocked(owner);
 
         parameter.Value = request.Value;
         parameter.Unit = request.Unit;
         parameter.Notes = request.Notes;
-        await repository.UpdateParameterAsync(parameter);
+        if (!await repository.UpdateParameterAsync(parameter))
+        {
+            throw NotFound("Parameter", id);
+        }
+
         return await GetParameterAsync(id);
     }
 
     public async Task DeleteParameterAsync(long id)
     {
-        var parameter = await GetParameterAsync(id);
-        var owner = await GetExperimentVersionAsync(parameter.ExperimentVersionID);
-        EnsureUnlocked(owner);
-
-        await repository.DeleteParameterAsync(id);
+        if (!await repository.DeleteParameterAsync(id))
+        {
+            throw NotFound("Parameter", id);
+        }
     }
 
     // -- ScoreRule ----------------------------------------------------------------
@@ -160,8 +158,6 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
 
     public async Task<ScoreRule> CreateScoreRuleAsync(CreateScoreRuleRequest request)
     {
-        var owner = await GetExperimentVersionAsync(request.ExperimentVersionID);
-        EnsureUnlocked(owner);
         EnsureScoreRange(request.MinScore, request.MaxScore);
 
         var scoreRule = new ScoreRule
@@ -175,30 +171,25 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
             Active = request.Active,
             RuleNotes = request.RuleNotes,
         };
-        var id = await repository.CreateScoreRuleAsync(scoreRule);
+        var id = await repository.CreateScoreRuleAsync(scoreRule) ?? throw NotFound("ExperimentVersion", request.ExperimentVersionID);
         return await GetScoreRuleAsync(id);
     }
 
-    /// <summary>Soft-deletes (RowState = 'D'). Idempotent: a no-op if the rule is already deleted, per docs/ARCHITECTURE.md and the add/delete-only lifecycle.</summary>
+    /// <summary>
+    /// The dedicated ScoreRule soft-delete (Issue #4): RowState 'A' becomes 'D' (HTTP 204). Not idempotent: an
+    /// already-deleted rule is the score-rule-already-deleted error, and any other RowState is
+    /// score-rule-invalid-rowstate. A live version (it has Executions and is not locked) is design-frozen. The
+    /// lifecycle check runs before the RowState check, both under the parent-version lock, inside the procedure.
+    /// </summary>
     public async Task DeleteScoreRuleAsync(int id)
     {
-        var scoreRule = await GetScoreRuleAsync(id);
-        var owner = await GetExperimentVersionAsync(scoreRule.ExperimentVersionID);
-        EnsureUnlocked(owner);
-
-        await repository.DeleteScoreRuleAsync(id);
+        if (!await repository.SoftDeleteScoreRuleAsync(id))
+        {
+            throw NotFound("ScoreRule", id);
+        }
     }
 
     // -- helpers ------------------------------------------------------------------
-
-    private static void EnsureUnlocked(ExperimentVersion experimentVersion)
-    {
-        if (experimentVersion.LockedUTC is not null)
-        {
-            throw new RecordLockedException(
-                $"ExperimentVersion {experimentVersion.ExperimentVersionID} was locked at {experimentVersion.LockedUTC:O} and its governed data is immutable through normal ShepherdAPI operations.");
-        }
-    }
 
     private static void EnsureScoreRange(int minScore, int maxScore)
     {

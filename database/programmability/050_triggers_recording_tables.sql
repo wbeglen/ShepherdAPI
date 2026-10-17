@@ -20,6 +20,11 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
 
+    -- Issue #4: an Execution can never be deleted, whatever its version's state. The first Execution
+    -- permanently freezes the version's design, and deleting it must not be a way to reverse that.
+    IF NOT EXISTS (SELECT 1 FROM inserted)
+        THROW 50403, N'An Execution cannot be deleted; its existence permanently freezes the ExperimentVersion design.', 1;
+
     IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
        AND EXISTS (SELECT ExecutionID, IterationID, AgentID, PhaseID, AttemptNumber, StartUTC FROM inserted
                    EXCEPT

@@ -57,6 +57,7 @@ public static class ErrorCatalog
     public static readonly ErrorEntry DesignFrozen = new("design-frozen", HttpStatusCode.Conflict, "Design Frozen", 50400);
     public static readonly ErrorEntry ScoreRuleAlreadyDeleted = new("score-rule-already-deleted", HttpStatusCode.Conflict, "ScoreRule Already Deleted", 50401);
     public static readonly ErrorEntry ScoreRuleInvalidRowState = new("score-rule-invalid-rowstate", HttpStatusCode.Conflict, "ScoreRule Invalid RowState", 50402);
+    public static readonly ErrorEntry ExecutionDeleteRejected = new("execution-delete-rejected", HttpStatusCode.Conflict, "Execution Delete Rejected", 50403);
 
     // -- Finalization (50500-50599) --
     public static readonly ErrorEntry FinalizeNoExecutions = new("finalize-no-executions", HttpStatusCode.Conflict, "Finalization Failed: No Executions", 50500);
@@ -80,7 +81,7 @@ public static class ErrorCatalog
         VersionLocked, IdentityChangeRejected,
         InvalidRuleConfiguration,
         VersionPhaseMismatch, UnavailableRule, OutOfRangeScore, DuplicateObservation,
-        DesignFrozen, ScoreRuleAlreadyDeleted, ScoreRuleInvalidRowState,
+        DesignFrozen, ScoreRuleAlreadyDeleted, ScoreRuleInvalidRowState, ExecutionDeleteRejected,
         FinalizeNoExecutions, FinalizeExecutionNotEnded, FinalizeExecutionWithoutObservation,
         FinalizeExecutionPhaseNotConfigured, FinalizePhaseWithoutObservation, FinalizePhaseWeightInvalid,
         FinalizeObservationIntegrity, FinalizeSnapshotRowsExist, SnapshotInsertNotPermitted,

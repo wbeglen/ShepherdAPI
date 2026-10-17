@@ -4,8 +4,9 @@ namespace ShepherdAPI.Api.Data;
 
 /// <summary>
 /// Data access for the experiment design aggregate: ExperimentVersion and its direct children
-/// Iteration, Parameter, and ScoreRule. Lock enforcement lives in the service layer, not here —
-/// this repository only knows how to read and write rows.
+/// Iteration, Parameter, and ScoreRule. Design writes (ExperimentVersion fields, Iteration, Parameter and
+/// ScoreRule create/update/delete) go through controlled-write procedures that take the parent-version lock
+/// and enforce the locked and design-frozen rules; a null/false result means the target was not found.
 /// </summary>
 public interface IExperimentDesignRepository
 {
@@ -20,14 +21,14 @@ public interface IExperimentDesignRepository
     // Iteration
     Task<IReadOnlyList<Iteration>> GetIterationsByExperimentVersionAsync(long experimentVersionId);
     Task<Iteration?> GetIterationAsync(long id);
-    Task<long> CreateIterationAsync(Iteration iteration);
+    Task<long?> CreateIterationAsync(Iteration iteration);
     Task<bool> UpdateIterationAsync(Iteration iteration);
     Task<bool> DeleteIterationAsync(long id);
 
     // Parameter
     Task<IReadOnlyList<Parameter>> GetParametersByExperimentVersionAsync(long experimentVersionId);
     Task<Parameter?> GetParameterAsync(long id);
-    Task<long> CreateParameterAsync(Parameter parameter);
+    Task<long?> CreateParameterAsync(Parameter parameter);
     Task<bool> UpdateParameterAsync(Parameter parameter);
     Task<bool> DeleteParameterAsync(long id);
 
@@ -39,8 +40,11 @@ public interface IExperimentDesignRepository
     Task<ScoreRule?> GetScoreRuleAsync(int id);
 
     /// <summary>Always creates an Active rule — RowState is left to the database default ('A').</summary>
-    Task<int> CreateScoreRuleAsync(ScoreRule scoreRule);
+    Task<int?> CreateScoreRuleAsync(ScoreRule scoreRule);
 
-    /// <summary>Soft-deletes: sets RowState = 'D'. Never physically removes the row. Idempotent — a no-op if already 'D'.</summary>
-    Task<bool> DeleteScoreRuleAsync(int id);
+    /// <summary>
+    /// The dedicated soft-delete (Issue #4): sets RowState = 'D' and nothing else. Throws the design-frozen,
+    /// already-deleted or invalid-RowState error per the procedure's precedence; false if the rule does not exist.
+    /// </summary>
+    Task<bool> SoftDeleteScoreRuleAsync(int id);
 }

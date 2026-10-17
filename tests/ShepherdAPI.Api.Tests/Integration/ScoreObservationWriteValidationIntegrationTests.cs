@@ -20,7 +20,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
 {
     private static int _sequence = 40000;
 
-    private sealed record Ctx(long Version, long Iteration, long Execution, int Rule, int RetiredRule, int OtherStateRule);
+    private sealed record Ctx(long Version, long Iteration, long Execution, int Rule, int RetiredRule, int OtherStateRule, int OtherPhase, int OtherPhaseRule);
 
     private ExperimentDesignService Design() => new(new ExperimentDesignRepository(fixture.ConnectionFactory));
 
@@ -68,8 +68,9 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         })).ScoreRuleID;
 
     /// <summary>
-    /// A version whose phase rules total 100 (so an Execution can be created), plus a retired rule and a rule in an
-    /// unrecognized RowState ('X'), both weighted 0 and both set up before the Execution exists.
+    /// A version whose phase rules total 100 (so an Execution can be created), plus a retired rule, a rule in an
+    /// unrecognized RowState ('X') and a rule in another phase, all set up before the Execution exists: the design
+    /// is frozen by the first Execution (Issue #4), so nothing about the rules can be arranged afterwards.
     /// </summary>
     private async Task<Ctx> SetupAsync(int min = 0, int max = 5, bool ruleActive = true)
     {
@@ -79,6 +80,8 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         await Design().DeleteScoreRuleAsync(retired);
         var otherState = await NewRuleAsync(version, fixture.PhaseId, 0m, min, max);
         await ExecAsync($"UPDATE dbo.ScoreRule SET RowState = 'X' WHERE ScoreRuleID = {otherState};");
+        var otherPhase = await NewPhaseAsync();
+        var otherPhaseRule = await NewRuleAsync(version, otherPhase, 40m);
 
         var iteration = await Design().CreateIterationAsync(new CreateIterationRequest
         {
@@ -89,7 +92,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
             IterationID = iteration.IterationID, AgentID = fixture.AgentId, PhaseID = fixture.PhaseId, StatusID = fixture.DraftStatusId,
             StartUTC = DateTime.UtcNow, AttemptNumber = 1,
         });
-        return new Ctx(version, iteration.IterationID, execution.ExecutionID, rule, retired, otherState);
+        return new Ctx(version, iteration.IterationID, execution.ExecutionID, rule, retired, otherState, otherPhase, otherPhaseRule);
     }
 
     private CreateScoreObservationRequest Obs(long execution, int rule, decimal score, int? rater = null) => new()
@@ -178,10 +181,8 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
     public async Task ARuleOfAnotherPhase_IsAPhaseMismatch()
     {
         var c = await SetupAsync();
-        var otherPhase = await NewPhaseAsync();
-        var otherPhaseRule = await NewRuleAsync(c.Version, otherPhase, 100m);
 
-        await AssertRejectedAsync(() => Recording().CreateScoreObservationAsync(Obs(c.Execution, otherPhaseRule, 3m)),
+        await AssertRejectedAsync(() => Recording().CreateScoreObservationAsync(Obs(c.Execution, c.OtherPhaseRule, 3m)),
             ErrorCatalog.VersionPhaseMismatch.SqlNumber!.Value, 409, "version-phase-mismatch");
         Assert.Equal(0, await ObservationCountAsync(c.Execution));
     }
@@ -276,7 +277,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         // The Execution has no EndUTC, its phase is the only one scored, and no other observation exists anywhere.
         var c = await SetupAsync();
         Assert.Null((await Recording().GetExecutionAsync(c.Execution)).EndUTC);
-        await NewRuleAsync(c.Version, await NewPhaseAsync(), 40m); // another phase, still incomplete
+        // (SetupAsync configured another phase's rule too, so the version has an unscored phase.)
 
         await Recording().CreateScoreObservationAsync(Obs(c.Execution, c.Rule, 3m));
 
@@ -421,29 +422,6 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         var rejected = await Assert.ThrowsAsync<SqlException>(() => write.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, rejected.Number);
         Assert.Equal(3m, (await Recording().GetScoreObservationAsync(original.ScoreObservationID)).ObservedScore);
-    }
-
-    [Fact]
-    public async Task ConcurrentRuleRetirement_IsSerialized_SoTheWriteSeesTheCommittedRuleState()
-    {
-        var c = await SetupAsync();
-
-        // A controlled writer is retiring the rule (still uncommitted)...
-        using var writer = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
-        using var writerTransaction = writer.BeginTransaction();
-        await AcquireAsync(writer, writerTransaction, c.Version, exclusive: false);
-        await writer.ExecuteAsync($"UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = {c.Rule};", transaction: writerTransaction);
-
-        var observation = Task.Run(() => Recording().CreateScoreObservationAsync(Obs(c.Execution, c.Rule, 3m)));
-        await Task.Delay(500);
-        Assert.False(observation.IsCompleted, "the write must wait for the rule change's lock");
-
-        writerTransaction.Commit();
-
-        // ...so by the time the write runs, the rule is no longer usable.
-        var rejected = await Assert.ThrowsAsync<SqlException>(() => observation.WaitAsync(TimeSpan.FromSeconds(10)));
-        Assert.Equal(ErrorCatalog.UnavailableRule.SqlNumber, rejected.Number);
-        Assert.Equal(0, await ObservationCountAsync(c.Execution));
     }
 
     [Fact]
