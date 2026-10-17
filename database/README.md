@@ -16,11 +16,11 @@ Restore the backup, then run only the `upgrade/` and `programmability/` scripts 
 
 ```bash
 for f in database/upgrade/*.sql database/programmability/*.sql; do
-  sqlcmd -S localhost -E -d Experiments -b -i "$f" || break
+  sqlcmd -S localhost -E -d Experiments -b -I -i "$f" || break
 done
 ```
 
-`-b` makes `sqlcmd` stop with a non-zero exit code on the first error. The glob expands in filename order within each folder, upgrade first.
+`-b` makes `sqlcmd` stop with a non-zero exit code on the first error. `-I` turns QUOTED_IDENTIFIER on, which `sqlcmd` leaves off by default; the scripts also set it themselves. The glob expands in filename order within each folder, upgrade first.
 
 ## Tests
 

@@ -107,8 +107,8 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return await connection.QuerySingleAsync<long>(
             """
             INSERT INTO dbo.Iteration (ExperimentVersionID, Sequence, IterationLabel, Prompt, Scenario, Notes)
-            OUTPUT INSERTED.IterationID
             VALUES (@ExperimentVersionID, @Sequence, @IterationLabel, @Prompt, @Scenario, @Notes);
+            SELECT CAST(SCOPE_IDENTITY() AS bigint);
             """,
             iteration);
     }
@@ -162,8 +162,8 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return await connection.QuerySingleAsync<long>(
             """
             INSERT INTO dbo.Parameter (ExperimentVersionID, Name, Value, Unit, Notes)
-            OUTPUT INSERTED.ParameterID
             VALUES (@ExperimentVersionID, @Name, @Value, @Unit, @Notes);
+            SELECT CAST(SCOPE_IDENTITY() AS bigint);
             """,
             parameter);
     }
@@ -215,8 +215,8 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return await connection.QuerySingleAsync<int>(
             """
             INSERT INTO dbo.ScoreRule (ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes)
-            OUTPUT INSERTED.ScoreRuleID
             VALUES (@ExperimentVersionID, @PhaseID, @ScoreCategoryID, @WeightPercent, @MinScore, @MaxScore, @Active, @RuleNotes);
+            SELECT CAST(SCOPE_IDENTITY() AS int);
             """,
             scoreRule);
     }

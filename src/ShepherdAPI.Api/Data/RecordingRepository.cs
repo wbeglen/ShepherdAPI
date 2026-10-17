@@ -40,10 +40,10 @@ public class RecordingRepository(ISqlConnectionFactory connectionFactory) : IRec
             INSERT INTO dbo.Execution
                 (IterationID, AgentID, PhaseID, StatusID, StartUTC, EndUTC, ModelUsed, InterfaceUsed,
                  InterventionCount, OutcomeNotes, AttemptNumber)
-            OUTPUT INSERTED.ExecutionID
             VALUES
                 (@IterationID, @AgentID, @PhaseID, @StatusID, @StartUTC, @EndUTC, @ModelUsed, @InterfaceUsed,
                  @InterventionCount, @OutcomeNotes, @AttemptNumber);
+            SELECT CAST(SCOPE_IDENTITY() AS bigint);
             """,
             execution);
     }
@@ -96,9 +96,9 @@ public class RecordingRepository(ISqlConnectionFactory connectionFactory) : IRec
             """
             INSERT INTO dbo.Artifact
                 (ExecutionID, ArtifactTypeID, OriginalName, OriginalURI, StoredURI, MimeType, ByteLength, SHA256, ReceivedUTC, StoredUTC)
-            OUTPUT INSERTED.ArtifactID
             VALUES
                 (@ExecutionID, @ArtifactTypeID, @OriginalName, @OriginalURI, @StoredURI, @MimeType, @ByteLength, @SHA256, @ReceivedUTC, @StoredUTC);
+            SELECT CAST(SCOPE_IDENTITY() AS bigint);
             """,
             artifact);
     }
@@ -136,8 +136,8 @@ public class RecordingRepository(ISqlConnectionFactory connectionFactory) : IRec
         return await connection.QuerySingleAsync<long>(
             """
             INSERT INTO dbo.ScoreObservation (ExecutionID, ScoreRuleID, RaterID, ObservedScore, ObservedUTC, ObservationNotes)
-            OUTPUT INSERTED.ScoreObservationID
             VALUES (@ExecutionID, @ScoreRuleID, @RaterID, @ObservedScore, @ObservedUTC, @ObservationNotes);
+            SELECT CAST(SCOPE_IDENTITY() AS bigint);
             """,
             observation);
     }
