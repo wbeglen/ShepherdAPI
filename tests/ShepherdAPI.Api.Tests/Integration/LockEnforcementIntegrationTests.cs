@@ -126,8 +126,11 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
         }));
         Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, lockedCreate.Number);
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => recordingService.UpdateScoreObservationContentAsync(
+        // Observation updates are checked inside dbo.usp_UpdateScoreObservationContent (Issue #3), so a locked
+        // version comes back as the catalog's version-locked error (SQL 50100).
+        var lockedUpdate = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => recordingService.UpdateScoreObservationContentAsync(
             observation.ScoreObservationID, new UpdateScoreObservationContentRequest { ObservedScore = 5.0m }));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, lockedUpdate.Number);
 
         await Assert.ThrowsAsync<RecordLockedException>(() => recordingService.AddEvidenceAsync(
             observation.ScoreObservationID, new CreateScoreObservationEvidenceRequest { ArtifactID = artifact.ArtifactID }));

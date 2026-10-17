@@ -100,15 +100,67 @@ public class RecordingServiceTests
     }
 
     [Fact]
-    public async Task CreateScoreObservationAsync_ThrowsRecordLocked_WhenGoverningExperimentVersionLocked()
+    public async Task CreateScoreObservationAsync_ThrowsNotFound_WhenTheExecutionDoesNotExist_WithoutCallingTheProcedure()
     {
-        var execution = new Execution { ExecutionID = 10 };
-        _repository.Setup(r => r.GetExecutionAsync(10)).ReturnsAsync(execution);
-        _lockGuard.Setup(l => l.GetLockedUtcByExecutionIdAsync(10)).ReturnsAsync(DateTime.UtcNow);
+        _repository.Setup(r => r.GetExecutionAsync(10)).ReturnsAsync((Execution?)null);
 
-        var request = new CreateScoreObservationRequest { ExecutionID = 10, ScoreRuleID = 1, RaterID = 1, ObservedScore = 3 };
-
-        await Assert.ThrowsAsync<RecordLockedException>(() => _sut.CreateScoreObservationAsync(request));
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _sut.CreateScoreObservationAsync(new CreateScoreObservationRequest { ExecutionID = 10, ScoreRuleID = 1, RaterID = 1, ObservedScore = 3 }));
         _repository.Verify(r => r.CreateScoreObservationAsync(It.IsAny<ScoreObservation>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreateScoreObservationAsync_ThrowsNotFound_WhenTheProcedureReportsTheExecutionGone()
+    {
+        _repository.Setup(r => r.GetExecutionAsync(10)).ReturnsAsync(new Execution { ExecutionID = 10 });
+        _repository.Setup(r => r.CreateScoreObservationAsync(It.IsAny<ScoreObservation>())).ReturnsAsync((long?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _sut.CreateScoreObservationAsync(new CreateScoreObservationRequest { ExecutionID = 10, ScoreRuleID = 1, RaterID = 1, ObservedScore = 3 }));
+    }
+
+    [Fact]
+    public async Task CreateScoreObservationAsync_LeavesTheLockToTheProcedure_AndReturnsTheStoredRow()
+    {
+        _repository.Setup(r => r.GetExecutionAsync(10)).ReturnsAsync(new Execution { ExecutionID = 10 });
+        _repository.Setup(r => r.CreateScoreObservationAsync(It.IsAny<ScoreObservation>())).ReturnsAsync(77L);
+        _repository.Setup(r => r.GetScoreObservationAsync(77)).ReturnsAsync(new ScoreObservation { ScoreObservationID = 77, ExecutionID = 10 });
+
+        var created = await _sut.CreateScoreObservationAsync(new CreateScoreObservationRequest { ExecutionID = 10, ScoreRuleID = 1, RaterID = 1, ObservedScore = 3 });
+
+        Assert.Equal(77, created.ScoreObservationID);
+        _lockGuard.Verify(l => l.GetLockedUtcByExecutionIdAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateScoreObservationContentAsync_ThrowsNotFound_WhenTheObservationDoesNotExist_WithoutCallingTheProcedure()
+    {
+        _repository.Setup(r => r.GetScoreObservationAsync(5)).ReturnsAsync((ScoreObservation?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _sut.UpdateScoreObservationContentAsync(5, new UpdateScoreObservationContentRequest { ObservedScore = 3 }));
+        _repository.Verify(r => r.UpdateScoreObservationContentAsync(It.IsAny<long>(), It.IsAny<decimal>(), It.IsAny<DateTime?>(), It.IsAny<string?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateScoreObservationContentAsync_ThrowsNotFound_WhenTheProcedureReportsItGone()
+    {
+        _repository.Setup(r => r.GetScoreObservationAsync(5)).ReturnsAsync(new ScoreObservation { ScoreObservationID = 5 });
+        _repository.Setup(r => r.UpdateScoreObservationContentAsync(5, 3m, null, null)).ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<NotFoundException>(() =>
+            _sut.UpdateScoreObservationContentAsync(5, new UpdateScoreObservationContentRequest { ObservedScore = 3 }));
+    }
+
+    [Fact]
+    public async Task UpdateScoreObservationContentAsync_LeavesTheLockToTheProcedure()
+    {
+        _repository.Setup(r => r.GetScoreObservationAsync(5)).ReturnsAsync(new ScoreObservation { ScoreObservationID = 5, ObservedScore = 4m });
+        _repository.Setup(r => r.UpdateScoreObservationContentAsync(5, 4m, null, null)).ReturnsAsync(true);
+
+        var updated = await _sut.UpdateScoreObservationContentAsync(5, new UpdateScoreObservationContentRequest { ObservedScore = 4 });
+
+        Assert.Equal(4m, updated.ObservedScore);
+        _lockGuard.Verify(l => l.GetLockedUtcByScoreObservationIdAsync(It.IsAny<long>()), Times.Never);
     }
 }

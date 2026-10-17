@@ -134,12 +134,15 @@ public class RecordingService(
     public async Task<ScoreObservation> GetScoreObservationAsync(long id) =>
         await repository.GetScoreObservationAsync(id) ?? throw NotFound("ScoreObservation", id);
 
+    /// <summary>
+    /// The lock, context (version, phase, rule usable) and range checks run inside
+    /// dbo.usp_CreateScoreObservation, atomically with the insert; their failures surface as the catalog's
+    /// version-locked, version-phase-mismatch, unavailable-rule and out-of-range-score errors, and a duplicate as
+    /// duplicate-observation. Incomplete phases, unfinished Executions and missing observations never block a write.
+    /// </summary>
     public async Task<ScoreObservation> CreateScoreObservationAsync(CreateScoreObservationRequest request)
     {
         await GetExecutionAsync(request.ExecutionID); // 404 if the Execution doesn't exist.
-
-        var lockedUtc = await lockGuard.GetLockedUtcByExecutionIdAsync(request.ExecutionID);
-        EnsureUnlocked(lockedUtc, "Execution", request.ExecutionID);
 
         var observation = new ScoreObservation
         {
@@ -151,17 +154,21 @@ public class RecordingService(
             ObservationNotes = request.ObservationNotes,
         };
         var id = await repository.CreateScoreObservationAsync(observation);
-        return await GetScoreObservationAsync(id);
+
+        // Null means the Execution vanished between the lookup above and the procedure's own check.
+        return await GetScoreObservationAsync(id ?? throw NotFound("Execution", request.ExecutionID));
     }
 
+    /// <summary>Content-only correction (ObservedScore, ObservedUTC, ObservationNotes); the lock and range checks run in dbo.usp_UpdateScoreObservationContent.</summary>
     public async Task<ScoreObservation> UpdateScoreObservationContentAsync(long id, UpdateScoreObservationContentRequest request)
     {
-        await GetScoreObservationAsync(id);
+        await GetScoreObservationAsync(id); // 404 if the observation doesn't exist.
 
-        var lockedUtc = await lockGuard.GetLockedUtcByScoreObservationIdAsync(id);
-        EnsureUnlocked(lockedUtc, "ScoreObservation", id);
-
-        await repository.UpdateScoreObservationContentAsync(id, request.ObservedScore, request.ObservedUTC, request.ObservationNotes);
+        var found = await repository.UpdateScoreObservationContentAsync(id, request.ObservedScore, request.ObservedUTC, request.ObservationNotes);
+        if (!found)
+        {
+            throw NotFound("ScoreObservation", id);
+        }
         return await GetScoreObservationAsync(id);
     }
 

@@ -139,29 +139,39 @@ public class RecordingRepository(ISqlConnectionFactory connectionFactory) : IRec
             new { id });
     }
 
-    public async Task<long> CreateScoreObservationAsync(ScoreObservation observation)
+    public async Task<long?> CreateScoreObservationAsync(ScoreObservation observation)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        return await connection.QuerySingleAsync<long>(
-            """
-            INSERT INTO dbo.ScoreObservation (ExecutionID, ScoreRuleID, RaterID, ObservedScore, ObservedUTC, ObservationNotes)
-            VALUES (@ExecutionID, @ScoreRuleID, @RaterID, @ObservedScore, @ObservedUTC, @ObservationNotes);
-            SELECT CAST(SCOPE_IDENTITY() AS bigint);
-            """,
-            observation);
+
+        var parameters = new DynamicParameters();
+        parameters.Add("@ExecutionID", observation.ExecutionID);
+        parameters.Add("@ScoreRuleID", observation.ScoreRuleID);
+        parameters.Add("@RaterID", observation.RaterID);
+        parameters.Add("@ObservedScore", observation.ObservedScore);
+        parameters.Add("@ObservedUTC", observation.ObservedUTC, DbType.DateTime2);
+        parameters.Add("@ObservationNotes", observation.ObservationNotes);
+        parameters.Add("@ScoreObservationID", dbType: DbType.Int64, direction: ParameterDirection.Output);
+        parameters.Add("@ExecutionFound", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+
+        await connection.ExecuteAsync("dbo.usp_CreateScoreObservation", parameters, commandType: CommandType.StoredProcedure);
+
+        return parameters.Get<bool>("@ExecutionFound") ? parameters.Get<long?>("@ScoreObservationID") : null;
     }
 
     public async Task<bool> UpdateScoreObservationContentAsync(long id, decimal observedScore, DateTime? observedUtc, string? observationNotes)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            """
-            UPDATE dbo.ScoreObservation
-            SET ObservedScore = @observedScore, ObservedUTC = @observedUtc, ObservationNotes = @observationNotes
-            WHERE ScoreObservationID = @id;
-            """,
-            new { id, observedScore, observedUtc, observationNotes });
-        return rows > 0;
+
+        var parameters = new DynamicParameters();
+        parameters.Add("@ScoreObservationID", id);
+        parameters.Add("@ObservedScore", observedScore);
+        parameters.Add("@ObservedUTC", observedUtc, DbType.DateTime2);
+        parameters.Add("@ObservationNotes", observationNotes);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+
+        await connection.ExecuteAsync("dbo.usp_UpdateScoreObservationContent", parameters, commandType: CommandType.StoredProcedure);
+
+        return parameters.Get<bool>("@Found");
     }
 
     // -- ScoreObservationEvidence -----------------------------------------------------

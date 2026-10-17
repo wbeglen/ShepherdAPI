@@ -30,7 +30,17 @@ public interface IRecordingRepository
     // ScoreObservation
     Task<IReadOnlyList<ScoreObservation>> GetScoreObservationsByExecutionAsync(long executionId);
     Task<ScoreObservation?> GetScoreObservationAsync(long id);
-    Task<long> CreateScoreObservationAsync(ScoreObservation observation);
+    /// <summary>
+    /// Creates the observation through dbo.usp_CreateScoreObservation, which validates the version lock and the
+    /// Execution/ScoreRule context and writes in one transaction. Returns null when the Execution does not exist;
+    /// failures surface as SqlException 50100 / 50300 / 50301 / 50302 (or 2627 for a duplicate).
+    /// </summary>
+    Task<long?> CreateScoreObservationAsync(ScoreObservation observation);
+
+    /// <summary>
+    /// Updates only the content columns through dbo.usp_UpdateScoreObservationContent (unlocked version, score in range).
+    /// Returns false when the observation does not exist.
+    /// </summary>
     Task<bool> UpdateScoreObservationContentAsync(long id, decimal observedScore, DateTime? observedUtc, string? observationNotes);
 
     // ScoreObservationEvidence
