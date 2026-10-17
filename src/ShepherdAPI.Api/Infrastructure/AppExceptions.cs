@@ -24,3 +24,12 @@ public class RecordLockedException(string message) : Exception(message);
 
 /// <summary>A uniqueness or foreign-key constraint in the database was violated by the request.</summary>
 public class ConflictException(string message) : Exception(message);
+
+/// <summary>
+/// An application-detected failure that maps to a specific <see cref="ErrorCatalog"/> entry, for
+/// cases where service code (rather than a T-SQL THROW) is the one rejecting the request.
+/// </summary>
+public class CatalogException(ErrorEntry entry, string message) : Exception(message)
+{
+    public ErrorEntry Entry { get; } = entry;
+}

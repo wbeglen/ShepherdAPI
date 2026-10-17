@@ -1,21 +1,23 @@
-using System.Data;
-using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
 using ShepherdAPI.Api.Data;
 using Xunit;
 
 namespace ShepherdAPI.Api.Tests.Integration;
 
 /// <summary>
-/// Creates a disposable database (schema taken directly from the authoritative
-/// database/Create_Experiments_Database_And_Tables-6.sql, not a hand-copied duplicate) so
-/// integration tests exercise real SQL Server constraints without ever touching the real,
+/// Creates a disposable database (schema taken directly from the authoritative baseline script in
+/// database/, plus the upgrade/ and programmability/ scripts, not a hand-copied duplicate) so
+/// integration tests exercise real SQL Server behavior without ever touching the real,
 /// already-populated Experiments database. Torn down after the test run.
 /// </summary>
 public class DatabaseFixture : IAsyncLifetime
 {
     private const string TestDatabaseName = "ShepherdAPI_IntegrationTest";
     private const string MasterConnectionString = "Server=localhost;Database=master;Trusted_Connection=True;TrustServerCertificate=True;";
+
+    /// <summary>Lock timeout used by the fixture's connection factory; short so a test that blocks fails fast.</summary>
+    public const int FixtureLockTimeoutMs = 5000;
 
     public string ConnectionString { get; } =
         $"Server=localhost;Database={TestDatabaseName};Trusted_Connection=True;TrustServerCertificate=True;";
@@ -36,84 +38,74 @@ public class DatabaseFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await RecreateDatabaseAsync();
-        await RunTableDdlAsync();
+        await RunBaselineDdlAsync();
+        await ApplyDeploymentScriptsAsync();
         await SeedReferenceDataAsync();
-        ConnectionFactory = new FixedConnectionFactory(ConnectionString);
+        ConnectionFactory = CreateConnectionFactory(FixtureLockTimeoutMs);
     }
 
     public async Task DisposeAsync()
     {
         await using var master = new SqlConnection(MasterConnectionString);
         await master.OpenAsync();
-        await using var cmd = new SqlCommand(
-            $"""
-            IF EXISTS (SELECT 1 FROM sys.databases WHERE name = '{TestDatabaseName}')
-            BEGIN
-                ALTER DATABASE [{TestDatabaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                DROP DATABASE [{TestDatabaseName}];
-            END
-            """, master);
+        await using var cmd = new SqlCommand(DropDatabaseSql(), master);
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private async Task RecreateDatabaseAsync()
+    /// <summary>Applies upgrade/ then programmability/ (each in filename order). Safe to call repeatedly: the scripts must be re-runnable.</summary>
+    public async Task ApplyDeploymentScriptsAsync()
     {
-        await using var master = new SqlConnection(MasterConnectionString);
-        await master.OpenAsync();
-        await using var cmd = new SqlCommand(
-            $"""
-            IF EXISTS (SELECT 1 FROM sys.databases WHERE name = '{TestDatabaseName}')
-            BEGIN
-                ALTER DATABASE [{TestDatabaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                DROP DATABASE [{TestDatabaseName}];
-            END
-            CREATE DATABASE [{TestDatabaseName}];
-            """, master);
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    private async Task RunTableDdlAsync()
-    {
-        var batches = ExtractTableDdlBatches();
-
-        await using var connection = new SqlConnection(ConnectionString);
-        await connection.OpenAsync();
-        foreach (var batch in batches)
+        foreach (var folder in RepoPaths.DeploymentFolders())
         {
-            await using var cmd = new SqlCommand(batch, connection);
-            await cmd.ExecuteNonQueryAsync();
+            await SqlScriptRunner.ApplyFolderAsync(ConnectionString, folder);
         }
     }
 
-    private static List<string> ExtractTableDdlBatches()
+    /// <summary>A real <see cref="SqlConnectionFactory"/> pointed at the test database. Pass null to leave Database:LockTimeoutMs unset.</summary>
+    public SqlConnectionFactory CreateConnectionFactory(int? lockTimeoutMs)
     {
-        var sql = File.ReadAllText(FindDdlFilePath());
+        var settings = new Dictionary<string, string?> { ["ConnectionStrings:Experiments"] = ConnectionString };
+        if (lockTimeoutMs is not null)
+        {
+            settings[SqlConnectionFactory.LockTimeoutKey] = lockTimeoutMs.Value.ToString();
+        }
+        return new SqlConnectionFactory(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+    }
+
+    private static string DropDatabaseSql() =>
+        $"""
+        IF EXISTS (SELECT 1 FROM sys.databases WHERE name = '{TestDatabaseName}')
+        BEGIN
+            ALTER DATABASE [{TestDatabaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+            DROP DATABASE [{TestDatabaseName}];
+        END
+        """;
+
+    private static async Task RecreateDatabaseAsync()
+    {
+        await using var master = new SqlConnection(MasterConnectionString);
+        await master.OpenAsync();
+        await using var cmd = new SqlCommand($"{DropDatabaseSql()}\nCREATE DATABASE [{TestDatabaseName}];", master);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task RunBaselineDdlAsync()
+    {
+        await using var connection = new SqlConnection(ConnectionString);
+        await connection.OpenAsync();
+        await SqlScriptRunner.ApplyBatchesAsync(connection, ExtractBaselineBatches());
+    }
+
+    /// <summary>The baseline script minus its CREATE DATABASE header and trailing USE [master] footer.</summary>
+    private static List<string> ExtractBaselineBatches()
+    {
+        var sql = File.ReadAllText(RepoPaths.BaselineDdl);
 
         const string startMarker = "USE [Experiments]";
         const string endMarker = "USE [master]";
         var startIdx = sql.IndexOf(startMarker, StringComparison.Ordinal);
         var endIdx = sql.LastIndexOf(endMarker, StringComparison.Ordinal);
-        var body = sql[(startIdx + startMarker.Length)..endIdx];
-
-        return Regex.Split(body, @"(?im)^\s*GO\s*$")
-            .Select(b => b.Trim())
-            .Where(b => b.Length > 0)
-            .ToList();
-    }
-
-    private static string FindDdlFilePath()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "database", "Create_Experiments_Database_And_Tables-6.sql");
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-            dir = dir.Parent;
-        }
-        throw new FileNotFoundException("Could not locate database/Create_Experiments_Database_And_Tables-6.sql above the test output directory.");
+        return SqlScriptRunner.SplitBatches(sql[(startIdx + startMarker.Length)..endIdx]);
     }
 
     private async Task SeedReferenceDataAsync()
@@ -141,16 +133,6 @@ public class DatabaseFixture : IAsyncLifetime
     {
         await using var cmd = new SqlCommand(sql, connection);
         return (int)(await cmd.ExecuteScalarAsync())!;
-    }
-
-    private sealed class FixedConnectionFactory(string connectionString) : ISqlConnectionFactory
-    {
-        public async Task<IDbConnection> CreateOpenConnectionAsync()
-        {
-            var connection = new SqlConnection(connectionString);
-            await connection.OpenAsync();
-            return connection;
-        }
     }
 }
 

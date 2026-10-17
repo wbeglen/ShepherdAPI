@@ -13,5 +13,5 @@ public class ScoreRule
     public string? RuleNotes { get; set; }
 
     /// <summary>'A' (active/selectable) or 'D' (deleted/retired — preserved for historical resolution). Set only via delete; create always produces 'A' via the database default.</summary>
-    public string RowState { get; set; } = "A";
+    public string RowState { get; set; } = Models.RowState.Active.ToString();
 }

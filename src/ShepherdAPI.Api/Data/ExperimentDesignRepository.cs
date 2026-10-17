@@ -192,9 +192,9 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         var rows = await connection.QueryAsync<ScoreRule>(
             """
             SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes, RowState
-            FROM dbo.ScoreRule WHERE ExperimentVersionID = @experimentVersionId AND RowState = 'A' ORDER BY PhaseID, ScoreCategoryID;
+            FROM dbo.ScoreRule WHERE ExperimentVersionID = @experimentVersionId AND RowState = @active ORDER BY PhaseID, ScoreCategoryID;
             """,
-            new { experimentVersionId });
+            new { experimentVersionId, active = RowState.Active });
         return rows.AsList();
     }
 
@@ -225,8 +225,8 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
         var rows = await connection.ExecuteAsync(
-            "UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = @id AND RowState = 'A';",
-            new { id });
+            "UPDATE dbo.ScoreRule SET RowState = @deleted WHERE ScoreRuleID = @id AND RowState = @active;",
+            new { id, deleted = RowState.Deleted, active = RowState.Active });
         return rows > 0;
     }
 }

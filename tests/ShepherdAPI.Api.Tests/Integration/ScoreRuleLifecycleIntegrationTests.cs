@@ -1,5 +1,6 @@
 using ShepherdAPI.Api.Contracts;
 using ShepherdAPI.Api.Data;
+using ShepherdAPI.Api.Models;
 using ShepherdAPI.Api.Services;
 using Xunit;
 
@@ -50,7 +51,7 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
 
         var created = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId));
 
-        Assert.Equal("A", created.RowState);
+        Assert.Equal(RowState.Active.ToString(), created.RowState);
     }
 
     [Fact]
@@ -68,7 +69,7 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
 
         Assert.Contains(active, r => r.ScoreRuleID == keep.ScoreRuleID);
         Assert.DoesNotContain(active, r => r.ScoreRuleID == retire.ScoreRuleID);
-        Assert.All(active, r => Assert.Equal("A", r.RowState));
+        Assert.All(active, r => Assert.Equal(RowState.Active.ToString(), r.RowState));
     }
 
     [Fact]
@@ -83,7 +84,7 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
         // Not a physical delete: GetScoreRuleAsync (historical/internal resolution) still finds it,
         // now marked 'D' rather than gone.
         var resolved = await designService.GetScoreRuleAsync(rule.ScoreRuleID);
-        Assert.Equal("D", resolved.RowState);
+        Assert.Equal(RowState.Deleted.ToString(), resolved.RowState);
     }
 
     [Fact]
@@ -97,7 +98,7 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
         await designService.DeleteScoreRuleAsync(rule.ScoreRuleID); // must not throw
 
         var resolved = await designService.GetScoreRuleAsync(rule.ScoreRuleID);
-        Assert.Equal("D", resolved.RowState);
+        Assert.Equal(RowState.Deleted.ToString(), resolved.RowState);
     }
 
     [Fact]
@@ -130,7 +131,7 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
         Assert.Equal(rule.ScoreRuleID, reloadedObservation.ScoreRuleID);
 
         var reloadedRule = await designService.GetScoreRuleAsync(reloadedObservation.ScoreRuleID);
-        Assert.Equal("D", reloadedRule.RowState);
+        Assert.Equal(RowState.Deleted.ToString(), reloadedRule.RowState);
         Assert.Equal(rule.WeightPercent, reloadedRule.WeightPercent);
     }
 }
