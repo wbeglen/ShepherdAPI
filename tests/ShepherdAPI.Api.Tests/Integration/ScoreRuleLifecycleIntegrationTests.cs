@@ -129,7 +129,8 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
 
         // Retire the rule after it has already been used for scoring. The version has an Execution, so it is
         // live (Issue #4) until it is finalized; the soft-delete is permitted once it is locked.
-        await designService.LockExperimentVersionAsync(experimentVersionId, new LockExperimentVersionRequest { StatusID = fixture.DraftStatusId });
+        await recordingService.UpdateExecutionRunFactsAsync(execution.ExecutionID, new UpdateExecutionRunFactsRequest { EndUTC = DateTime.UtcNow });
+        await designService.LockExperimentVersionAsync(experimentVersionId, new LockExperimentVersionRequest());
         await designService.DeleteScoreRuleAsync(rule.ScoreRuleID);
 
         // The existing observation, and its reference to the now-retired rule, remain fully valid.

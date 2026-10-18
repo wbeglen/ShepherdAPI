@@ -100,10 +100,14 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
             new UpdateScoreObservationContentRequest { ObservedScore = 4.0m, ObservationNotes = "Revised after later execution." });
         Assert.Equal(4.0m, corrected.ObservedScore);
 
-        // Lock the experimental record.
+        // Finalization requires every Execution to have ended (Issue #2).
+        await recordingService.UpdateExecutionRunFactsAsync(execution.ExecutionID, new UpdateExecutionRunFactsRequest { EndUTC = DateTime.UtcNow });
+
+        // Lock the experimental record. The optional StatusID is ignored by finalization.
         var locked = await designService.LockExperimentVersionAsync(version.ExperimentVersionID,
             new LockExperimentVersionRequest { StatusID = fixture.LockedStatusId });
         Assert.NotNull(locked.LockedUTC);
+        Assert.Equal(version.StatusID, locked.StatusID);
 
         // Everything governed by the lock now rejects mutation and creation.
         // Design writes are checked inside their controlled-write procedures (Issue #4), so a locked version comes
@@ -139,8 +143,10 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
         await Assert.ThrowsAsync<RecordLockedException>(() => recordingService.AddEvidenceAsync(
             observation.ScoreObservationID, new CreateScoreObservationEvidenceRequest { ArtifactID = artifact.ArtifactID }));
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => designService.LockExperimentVersionAsync(
-            version.ExperimentVersionID, new LockExperimentVersionRequest { StatusID = fixture.LockedStatusId }));
+        // Finalizing again is the version-locked error (SQL 50100), not a second finalization.
+        var lockedAgain = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => designService.LockExperimentVersionAsync(
+            version.ExperimentVersionID, new LockExperimentVersionRequest()));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, lockedAgain.Number);
 
         // StatusID is the sole post-lock exception.
         var retired = await designService.SetExperimentVersionStatusAsync(

@@ -66,17 +66,15 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return rows > 0;
     }
 
-    public async Task<bool> LockExperimentVersionAsync(long id, int statusId, DateTime lockedUtc)
+    public async Task<DateTime?> FinalizeExperimentVersionAsync(long id)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            """
-            UPDATE dbo.ExperimentVersion
-            SET StatusID = @statusId, LockedUTC = @lockedUtc
-            WHERE ExperimentVersionID = @id AND LockedUTC IS NULL;
-            """,
-            new { id, statusId, lockedUtc });
-        return rows > 0;
+        var parameters = new DynamicParameters();
+        parameters.Add("@ExperimentVersionID", id);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        parameters.Add("@LockedUTC", dbType: DbType.DateTime2, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_FinalizeExperimentVersion", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@Found") ? parameters.Get<DateTime?>("@LockedUTC") : null;
     }
 
     // -- Iteration ------------------------------------------------------------

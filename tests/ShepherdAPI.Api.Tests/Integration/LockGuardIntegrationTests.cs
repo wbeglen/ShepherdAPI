@@ -190,9 +190,11 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
     {
         var c = await BuildAsync();
         await ExecAsync($"""
+            EXEC sys.sp_set_session_context @key = N'ShepherdAPI.FinalizingVersionID', @value = {c.VersionB};
             INSERT dbo.ScoreObservationSnapshot (ExperimentVersionID, ExecutionID, PhaseID, ScoreCategoryID, ScoreRuleID, ScoreObservationID,
                                                  ObservedScore, MinScore, MaxScore, WeightPercent, HigherIsBetter, SnapshotUTC)
             VALUES ({c.VersionB}, {c.ExecutionB}, {fixture.PhaseId}, {fixture.ScoreCategoryId}, {c.RuleB}, {c.ObservationB}, 3, 0, 5, 50, 1, SYSUTCDATETIME());
+            EXEC sys.sp_set_session_context @key = N'ShepherdAPI.FinalizingVersionID', @value = NULL;
             """);
 
         Assert.Equal(c.VersionA, await ScalarAsync<long>($"SELECT ExperimentVersionID FROM dbo.vOwnerIteration WHERE IterationID = {c.IterationA};"));

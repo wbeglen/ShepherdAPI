@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using ShepherdAPI.Api.Contracts;
 using ShepherdAPI.Api.Data;
 using ShepherdAPI.Api.Infrastructure;
@@ -47,14 +48,19 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
 
     public async Task<ExperimentVersion> LockExperimentVersionAsync(long id, LockExperimentVersionRequest request)
     {
-        var current = await GetExperimentVersionAsync(id);
-        if (current.LockedUTC is not null)
+        // request.StatusID is accepted for compatibility and deliberately ignored (Issue #2).
+        try
         {
-            throw new RecordLockedException(
-                $"ExperimentVersion {id} is already locked as of {current.LockedUTC:O}. LockedUTC cannot be changed through normal ShepherdAPI operations.");
+            if (await repository.FinalizeExperimentVersionAsync(id) is null)
+            {
+                throw NotFound("ExperimentVersion", id);
+            }
+        }
+        catch (SqlException ex) when (FinalizationErrors.TryTranslate(ex, out var translated))
+        {
+            throw translated;
         }
 
-        await repository.LockExperimentVersionAsync(id, request.StatusID, DateTime.UtcNow);
         return await GetExperimentVersionAsync(id);
     }
 

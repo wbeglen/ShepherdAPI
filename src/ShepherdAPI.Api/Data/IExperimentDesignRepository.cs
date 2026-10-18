@@ -16,7 +16,13 @@ public interface IExperimentDesignRepository
     Task<long> CreateExperimentVersionAsync(string name, string versionLabel, int statusId, DateTime effectiveDateUtc, string description);
     Task<bool> UpdateExperimentVersionAsync(long id, string name, string versionLabel, DateTime effectiveDateUtc, string description);
     Task<bool> SetExperimentVersionStatusAsync(long id, int statusId);
-    Task<bool> LockExperimentVersionAsync(long id, int statusId, DateTime lockedUtc);
+
+    /// <summary>
+    /// Runs dbo.usp_FinalizeExperimentVersion: snapshots every ScoreObservation and sets LockedUTC in one
+    /// transaction. Returns the database-generated LockedUTC, or null if the version does not exist. Failed
+    /// checks surface as the SqlExceptions the procedure throws (catalog errors 50100 and 50500-50507).
+    /// </summary>
+    Task<DateTime?> FinalizeExperimentVersionAsync(long id);
 
     // Iteration
     Task<IReadOnlyList<Iteration>> GetIterationsByExperimentVersionAsync(long experimentVersionId);

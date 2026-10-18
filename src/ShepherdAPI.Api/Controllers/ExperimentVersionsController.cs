@@ -43,10 +43,15 @@ public class ExperimentVersionsController(IExperimentDesignService service) : Co
         Ok(await service.SetExperimentVersionStatusAsync(id, request));
 
     /// <summary>
-    /// The single, irreversible action that atomically sets StatusID and LockedUTC together,
-    /// declaring the experimental record final (docs/ARCHITECTURE.md §5.3). Returns 409 if already locked.
+    /// Finalizes the version (Issue #2): in one transaction it snapshots every ScoreObservation into
+    /// ScoreObservationSnapshot and sets LockedUTC. Irreversible. The optional StatusID in the request is ignored.
+    /// Returns 409 version-locked if already locked, or a 409 naming the failed completeness or integrity check
+    /// (and the offending Executions, phases or observations) if the version is not ready.
     /// </summary>
     [HttpPost("{id:long}/lock")]
+    [ProducesResponseType(typeof(ExperimentVersion), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ExperimentVersion>> Lock(long id, LockExperimentVersionRequest request) =>
         Ok(await service.LockExperimentVersionAsync(id, request));
 }

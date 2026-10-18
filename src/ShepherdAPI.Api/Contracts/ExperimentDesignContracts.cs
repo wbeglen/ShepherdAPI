@@ -25,10 +25,14 @@ public class SetExperimentVersionStatusRequest
     public int StatusID { get; set; }
 }
 
-/// <summary>The single action that atomically sets both StatusID and LockedUTC. Not reversible via the API.</summary>
+/// <summary>
+/// Finalizes the version: snapshots its scores and sets LockedUTC in one transaction (Issue #2). Not reversible via the API.
+/// StatusID is optional and ignored; use the status endpoint to change a version's StatusID.
+/// </summary>
 public class LockExperimentVersionRequest
 {
-    public int StatusID { get; set; }
+    /// <summary>Accepted for compatibility with earlier clients and ignored by finalization.</summary>
+    public int? StatusID { get; set; }
 }
 
 public class CreateIterationRequest

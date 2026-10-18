@@ -78,13 +78,26 @@ public class ExperimentDesignServiceTests
     }
 
     [Fact]
-    public async Task LockExperimentVersionAsync_ThrowsRecordLocked_WhenAlreadyLocked()
+    public async Task LockExperimentVersionAsync_Finalizes_IgnoringTheOptionalStatusId()
     {
-        var version = new ExperimentVersion { ExperimentVersionID = 1, LockedUTC = DateTime.UtcNow };
-        _repository.Setup(r => r.GetExperimentVersionAsync(1)).ReturnsAsync(version);
+        _repository.Setup(r => r.FinalizeExperimentVersionAsync(1)).ReturnsAsync(DateTime.UtcNow);
+        _repository.Setup(r => r.GetExperimentVersionAsync(1)).ReturnsAsync(new ExperimentVersion { ExperimentVersionID = 1, StatusID = 5, LockedUTC = DateTime.UtcNow });
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => _sut.LockExperimentVersionAsync(1, new LockExperimentVersionRequest { StatusID = 2 }));
-        _repository.Verify(r => r.LockExperimentVersionAsync(It.IsAny<long>(), It.IsAny<int>(), It.IsAny<DateTime>()), Times.Never);
+        var withStatus = await _sut.LockExperimentVersionAsync(1, new LockExperimentVersionRequest { StatusID = 2 });
+        var without = await _sut.LockExperimentVersionAsync(1, new LockExperimentVersionRequest());
+
+        Assert.Equal(5, withStatus.StatusID);
+        Assert.Equal(5, without.StatusID);
+        _repository.Verify(r => r.SetExperimentVersionStatusAsync(It.IsAny<long>(), It.IsAny<int>()), Times.Never);
+        _repository.Verify(r => r.FinalizeExperimentVersionAsync(1), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task LockExperimentVersionAsync_ThrowsNotFound_WhenTheVersionDoesNotExist()
+    {
+        _repository.Setup(r => r.FinalizeExperimentVersionAsync(9)).ReturnsAsync((DateTime?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.LockExperimentVersionAsync(9, new LockExperimentVersionRequest()));
     }
 
     [Fact]
