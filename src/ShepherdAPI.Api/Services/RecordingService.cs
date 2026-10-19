@@ -135,9 +135,9 @@ public class RecordingService(
         await repository.GetScoreObservationAsync(id) ?? throw NotFound("ScoreObservation", id);
 
     /// <summary>
-    /// The lock, context (version, phase, rule usable) and range checks run inside
+    /// The lock, context (version, phase) and range checks run inside
     /// dbo.usp_CreateScoreObservation, atomically with the insert; their failures surface as the catalog's
-    /// version-locked, version-phase-mismatch, unavailable-rule and out-of-range-score errors, and a duplicate as
+    /// version-locked, version-phase-mismatch and out-of-range-score errors, and a duplicate as
     /// duplicate-observation. Incomplete phases, unfinished Executions and missing observations never block a write.
     /// </summary>
     public async Task<ScoreObservation> CreateScoreObservationAsync(CreateScoreObservationRequest request)

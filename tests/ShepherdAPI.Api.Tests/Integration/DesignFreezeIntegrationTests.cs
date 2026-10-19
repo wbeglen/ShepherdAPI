@@ -13,9 +13,10 @@ namespace ShepherdAPI.Api.Tests.Integration;
 
 /// <summary>
 /// Issue #4: once any Execution exists for an ExperimentVersion its design (Iterations, Parameters, ScoreRules and the
-/// version's Name, VersionLabel, EffectiveDateUTC and Description) is frozen for good; Executions can never be deleted;
-/// and the ScoreRule soft-delete is the one lifecycle-gated exception. Real SQL Server, through both the API services
-/// (controlled-write procedures) and raw SQL (guard triggers).
+/// version's Name, VersionLabel, EffectiveDateUTC and Description) is frozen for good, and Executions can never be
+/// deleted. Issue #7: ScoreRules follow the same rules with no exception — created, updated and physically deleted only
+/// while the version is unlocked and has no Execution. Real SQL Server, through both the API services (controlled-write
+/// procedures) and raw SQL (guard triggers).
 /// </summary>
 [Collection("Database")]
 public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
@@ -23,8 +24,6 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
     private const int VersionLocked = 50100;
     private const int IdentityChange = 50101;
     private const int DesignFrozen = 50400;
-    private const int AlreadyDeleted = 50401;
-    private const int InvalidRowState = 50402;
     private const int ExecutionDelete = 50403;
 
     private static int _sequence = 60000;
@@ -72,9 +71,6 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
             ExperimentVersionID = version, PhaseID = phase, ScoreCategoryID = category ?? await NewCategoryAsync(),
             WeightPercent = weight, MinScore = 0, MaxScore = 5, Active = true,
         })).ScoreRuleID;
-
-    /// <summary>Adds a 50.00 rule so the main phase still totals 100.00 after one of the 50.00 rules has been retired.</summary>
-    private Task<int> AddReplacementRuleAsync(Design4 d) => NewRuleAsync(d.Version, fixture.PhaseId, 50m);
 
     private async Task<Iteration> NewIterationAsync(long version, int sequence) => await Design().CreateIterationAsync(new CreateIterationRequest
     {
@@ -160,8 +156,11 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
     private Task LockAsync(long version) =>
         ExecAsync("UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = @version;", new { version });
 
-    private async Task<string> RowStateAsync(int rule) =>
-        (await ScalarAsync<string>("SELECT RowState FROM dbo.ScoreRule WHERE ScoreRuleID = @rule;", new { rule })).Trim();
+    private async Task<bool> RuleExistsAsync(int rule) =>
+        await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreRule WHERE ScoreRuleID = @rule;", new { rule }) == 1;
+
+    private Task<decimal> RuleWeightAsync(int rule) =>
+        ScalarAsync<decimal>("SELECT WeightPercent FROM dbo.ScoreRule WHERE ScoreRuleID = @rule;", new { rule });
 
     // ---------------------------------------------------------------- deployment
 
@@ -175,11 +174,14 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
             "usp_AssertDesignNotFrozen", "usp_AssertDesignWritable", "usp_UpdateExperimentVersion",
             "usp_CreateIteration", "usp_UpdateIteration", "usp_DeleteIteration",
             "usp_CreateParameter", "usp_UpdateParameter", "usp_DeleteParameter",
-            "usp_CreateScoreRule", "usp_SoftDeleteScoreRule",
+            "usp_CreateScoreRule", "usp_UpdateScoreRule", "usp_DeleteScoreRule",
         })
         {
             Assert.Contains(expected, procs);
         }
+
+        // Issue #7: the soft-delete procedure is gone, also from a database it was deployed to before.
+        Assert.DoesNotContain("usp_SoftDeleteScoreRule", procs);
 
         Assert.NotNull(await connection.QuerySingleAsync<int?>("SELECT OBJECT_ID(N'dbo.fn_VersionHasExecutions');"));
     }
@@ -226,8 +228,10 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
             ExperimentVersionID = d.Version, PhaseID = d.OtherPhase, ScoreCategoryID = await NewCategoryAsync(),
             WeightPercent = 1m, MinScore = 0, MaxScore = 5, Active = true,
         });
+        var revisedRule = await design.UpdateScoreRuleAsync(rule.ScoreRuleID, new UpdateScoreRuleRequest { WeightPercent = 2m, MinScore = 0, MaxScore = 7, Active = true });
+        Assert.Equal((2m, 7), (revisedRule.WeightPercent, revisedRule.MaxScore));
         await design.DeleteScoreRuleAsync(rule.ScoreRuleID);
-        Assert.Equal("D", await RowStateAsync(rule.ScoreRuleID));
+        Assert.False(await RuleExistsAsync(rule.ScoreRuleID));
     }
 
     [Fact]
@@ -242,6 +246,7 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
         await Assert.ThrowsAsync<NotFoundException>(() => design.DeleteIterationAsync(long.MaxValue));
         await Assert.ThrowsAsync<NotFoundException>(() => design.UpdateParameterAsync(long.MaxValue, new UpdateParameterRequest { Value = "v" }));
         await Assert.ThrowsAsync<NotFoundException>(() => design.DeleteParameterAsync(long.MaxValue));
+        await Assert.ThrowsAsync<NotFoundException>(() => design.UpdateScoreRuleAsync(int.MaxValue, new UpdateScoreRuleRequest { WeightPercent = 1, MinScore = 0, MaxScore = 5 }));
         await Assert.ThrowsAsync<NotFoundException>(() => design.DeleteScoreRuleAsync(int.MaxValue));
     }
 
@@ -270,12 +275,13 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
 
         await FrozenAsync(async () => await design.CreateScoreRuleAsync(new CreateScoreRuleRequest
             { ExperimentVersionID = d.Version, PhaseID = fixture.PhaseId, ScoreCategoryID = fixture.ScoreCategoryId + 1000, WeightPercent = 1, MinScore = 0, MaxScore = 5 }), $"{because}: score rule create");
-        await FrozenAsync(() => design.DeleteScoreRuleAsync(d.Rule2), $"{because}: score rule retire");
-        await FrozenAsync(() => design.DeleteScoreRuleAsync(d.OtherPhaseRule), $"{because}: score rule retire (another phase)");
+        await FrozenAsync(() => design.UpdateScoreRuleAsync(d.Rule2, new UpdateScoreRuleRequest { WeightPercent = 1, MinScore = 0, MaxScore = 5 }), $"{because}: score rule update");
+        await FrozenAsync(() => design.DeleteScoreRuleAsync(d.Rule2), $"{because}: score rule delete");
+        await FrozenAsync(() => design.DeleteScoreRuleAsync(d.OtherPhaseRule), $"{because}: score rule delete (another phase)");
 
         // Nothing changed.
-        Assert.Equal("A", await RowStateAsync(d.Rule2));
-        Assert.Equal("A", await RowStateAsync(d.OtherPhaseRule));
+        Assert.Equal(50m, await RuleWeightAsync(d.Rule2));
+        Assert.True(await RuleExistsAsync(d.OtherPhaseRule));
         Assert.Equal(2, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Iteration WHERE ExperimentVersionID = @v;", new { v = d.Version }));
         Assert.Equal(2, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Parameter WHERE ExperimentVersionID = @v;", new { v = d.Version }));
         Assert.Equal(3, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreRule WHERE ExperimentVersionID = @v;", new { v = d.Version }));
@@ -416,7 +422,6 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
             ("Parameter delete", $"DELETE dbo.Parameter WHERE ParameterID = {d.Parameter2};"),
             ("ScoreRule insert", $"INSERT dbo.ScoreRule (ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active) VALUES ({d.Version}, {fixture.PhaseId}, {category}, 1, 0, 5, 1);"),
             ("ScoreRule update", $"UPDATE dbo.ScoreRule SET WeightPercent = 1 WHERE ScoreRuleID = {d.Rule};"),
-            ("ScoreRule retire", $"UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = {d.Rule2};"),
             ("ScoreRule delete", $"DELETE dbo.ScoreRule WHERE ScoreRuleID = {d.OtherPhaseRule};"),
             ("ExperimentVersion Name", $"UPDATE dbo.ExperimentVersion SET Name = N'renamed' WHERE ExperimentVersionID = {d.Version};"),
             ("ExperimentVersion VersionLabel", $"UPDATE dbo.ExperimentVersion SET VersionLabel = N'v9' WHERE ExperimentVersionID = {d.Version};"),
@@ -432,7 +437,8 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
         }
 
         Assert.Equal(2, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Iteration WHERE ExperimentVersionID = @v;", new { v = d.Version }));
-        Assert.Equal("A", await RowStateAsync(d.Rule2));
+        Assert.Equal(3, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreRule WHERE ExperimentVersionID = @v;", new { v = d.Version }));
+        Assert.Equal(50m, await RuleWeightAsync(d.Rule));
     }
 
     [Fact]
@@ -460,9 +466,14 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
         Assert.Equal(1, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Parameter WHERE ParameterID = @p;", new { p = free.Parameter2 }));
 
         var rules = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync(
-            $"UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID IN ({free.Rule2}, {frozen.Rule2});"));
+            $"UPDATE dbo.ScoreRule SET WeightPercent = 1 WHERE ScoreRuleID IN ({free.Rule2}, {frozen.Rule2});"));
         Assert.Equal(DesignFrozen, rules.Number);
-        Assert.Equal("A", await RowStateAsync(free.Rule2));
+        Assert.Equal(50m, await RuleWeightAsync(free.Rule2));
+
+        var ruleDelete = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync(
+            $"DELETE dbo.ScoreRule WHERE ScoreRuleID IN ({free.Rule2}, {frozen.Rule2});"));
+        Assert.Equal(DesignFrozen, ruleDelete.Number);
+        Assert.True(await RuleExistsAsync(free.Rule2));
 
         var versions = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync(
             $"UPDATE dbo.ExperimentVersion SET Description = N'mixed' WHERE ExperimentVersionID IN ({free.Version}, {frozen.Version});"));
@@ -539,137 +550,172 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
     }
 
     [Fact]
-    public async Task ReadsAreUnaffected_AndRetiredRulesStayOutOfTheActiveList()
+    public async Task ReadsAreUnaffected_AndARuleDeletedBeforeTheFirstExecutionIsGone()
     {
         var d = await NewDesignAsync();
         var spare = await NewRuleAsync(d.Version, d.OtherPhase, 0m);
         await Design().DeleteScoreRuleAsync(spare);
         await NewExecutionAsync(d.Iteration);
 
-        var active = await Design().GetScoreRulesAsync(d.Version);
-        Assert.DoesNotContain(active, r => r.ScoreRuleID == spare);
-        Assert.Contains(active, r => r.ScoreRuleID == d.Rule);
-        Assert.Equal("D", (await Design().GetScoreRuleAsync(spare)).RowState.Trim());
+        var rules = await Design().GetScoreRulesAsync(d.Version);
+        Assert.DoesNotContain(rules, r => r.ScoreRuleID == spare);
+        Assert.Equal([d.Rule, d.Rule2, d.OtherPhaseRule], rules.Select(r => r.ScoreRuleID).Order());
+        await Assert.ThrowsAsync<NotFoundException>(() => Design().GetScoreRuleAsync(spare));
         Assert.Equal(2, (await Design().GetIterationsAsync(d.Version)).Count);
         Assert.Equal(2, (await Design().GetParametersAsync(d.Version)).Count);
     }
 
-    // ---------------------------------------------------------------- the ScoreRule soft-delete
+    // ---------------------------------------------------------------- ScoreRule update and physical delete (#7)
 
     [Fact]
-    public async Task SoftDelete_OfAnActiveRule_OnAVersionWithoutExecutions_SetsOnlyRowState()
+    public async Task UpdateScoreRule_ChangesOnlyTheNonKeyFields_AndKeepsTheRuleIdentity()
     {
         var d = await NewDesignAsync();
         var before = await Design().GetScoreRuleAsync(d.Rule2);
 
-        await Design().DeleteScoreRuleAsync(d.Rule2);
+        var after = await Design().UpdateScoreRuleAsync(d.Rule2, new UpdateScoreRuleRequest
+            { WeightPercent = 40m, MinScore = 1, MaxScore = 10, Active = false, RuleNotes = "revised" });
 
-        var after = await Design().GetScoreRuleAsync(d.Rule2);
-        Assert.Equal("D", after.RowState.Trim());
-        Assert.Equal((before.ExperimentVersionID, before.PhaseID, before.ScoreCategoryID, before.WeightPercent, before.MinScore, before.MaxScore, before.Active, before.RuleNotes),
-                     (after.ExperimentVersionID, after.PhaseID, after.ScoreCategoryID, after.WeightPercent, after.MinScore, after.MaxScore, after.Active, after.RuleNotes));
+        Assert.Equal((before.ScoreRuleID, before.ExperimentVersionID, before.PhaseID, before.ScoreCategoryID),
+                     (after.ScoreRuleID, after.ExperimentVersionID, after.PhaseID, after.ScoreCategoryID));
+        Assert.Equal((40m, 1, 10, false, "revised"), (after.WeightPercent, after.MinScore, after.MaxScore, after.Active, after.RuleNotes));
     }
 
     [Fact]
-    public async Task SoftDelete_OnALockedVersionWithExecutions_IsPermitted_AndOnlyChangesRowState()
+    public async Task UpdateScoreRule_RejectsAnInvalidRange_AndAMissingRule()
     {
         var d = await NewDesignAsync();
-        var execution = await NewExecutionAsync(d.Iteration);
-        var observation = await Recording().CreateScoreObservationAsync(new CreateScoreObservationRequest
-            { ExecutionID = execution.ExecutionID, ScoreRuleID = d.Rule2, RaterID = fixture.RaterId, ObservedScore = 3m });
-        await LockAsync(d.Version);
 
-        var rulesBefore = await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreRule WHERE ExperimentVersionID = @v;", new { v = d.Version });
-        await Design().DeleteScoreRuleAsync(d.Rule2);
+        await Assert.ThrowsAsync<ValidationAppException>(() => Design().UpdateScoreRuleAsync(d.Rule2, new UpdateScoreRuleRequest
+            { WeightPercent = 50m, MinScore = 5, MaxScore = 5 }));
+        await Assert.ThrowsAsync<NotFoundException>(() => Design().UpdateScoreRuleAsync(int.MaxValue, new UpdateScoreRuleRequest
+            { WeightPercent = 50m, MinScore = 0, MaxScore = 5 }));
 
-        Assert.Equal("D", await RowStateAsync(d.Rule2));
-        Assert.Equal("A", await RowStateAsync(d.Rule));
-        Assert.Equal(rulesBefore, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreRule WHERE ExperimentVersionID = @v;", new { v = d.Version }));
-        Assert.Equal(d.Rule2, (await Recording().GetScoreObservationAsync(observation.ScoreObservationID)).ScoreRuleID);
-
-        // ...but nothing else is writable on the locked version.
-        var iterationEx = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteIterationAsync(d.Iteration2));
-        await AssertMappedAsync(iterationEx, VersionLocked, "version-locked");
+        Assert.Equal(50m, await RuleWeightAsync(d.Rule2));
     }
 
     [Fact]
-    public async Task SoftDelete_OnALiveVersion_IsRejectedAsDesignFrozen_WhateverTheRuleState()
+    public async Task DeleteScoreRule_RemovesTheRow_AndADeletedRuleIsThenNotFound()
     {
         var d = await NewDesignAsync();
-        await Design().DeleteScoreRuleAsync(d.Rule2); // already deleted, then the version goes live
-        await AddReplacementRuleAsync(d);
+
+        await Design().DeleteScoreRuleAsync(d.Rule2);
+
+        Assert.False(await RuleExistsAsync(d.Rule2));
+        Assert.True(await RuleExistsAsync(d.Rule));
+        await Assert.ThrowsAsync<NotFoundException>(() => Design().GetScoreRuleAsync(d.Rule2));
+        await Assert.ThrowsAsync<NotFoundException>(() => Design().DeleteScoreRuleAsync(d.Rule2));
+        await Assert.ThrowsAsync<NotFoundException>(() => Design().UpdateScoreRuleAsync(d.Rule2, new UpdateScoreRuleRequest
+            { WeightPercent = 50m, MinScore = 0, MaxScore = 5 }));
+    }
+
+    [Fact]
+    public async Task DeleteScoreRule_FreesItsVersionPhaseCategoryCombination()
+    {
+        var d = await NewDesignAsync();
+        var category = (await Design().GetScoreRuleAsync(d.Rule2)).ScoreCategoryID;
+
+        // While the rule exists the combination is taken.
+        var duplicate = await Assert.ThrowsAsync<SqlException>(() => NewRuleAsync(d.Version, fixture.PhaseId, 50m, category));
+        Assert.Equal(2627, duplicate.Number);
+
+        await Design().DeleteScoreRuleAsync(d.Rule2);
+        var recreated = await NewRuleAsync(d.Version, fixture.PhaseId, 50m, category);
+
+        Assert.NotEqual(d.Rule2, recreated);
+        Assert.Equal(category, (await Design().GetScoreRuleAsync(recreated)).ScoreCategoryID);
+
+        // The recreated rule makes the phase total 100.00 again, so the first Execution is accepted.
         await NewExecutionAsync(d.Iteration);
-
-        // Active rule: design-frozen.
-        await FrozenAsync(() => Design().DeleteScoreRuleAsync(d.Rule), "active rule on a live version");
-        // Already-deleted rule: the lifecycle check comes first, so still design-frozen, not already-deleted.
-        await FrozenAsync(() => Design().DeleteScoreRuleAsync(d.Rule2), "deleted rule on a live version (lifecycle precedes RowState)");
-
-        Assert.Equal("A", await RowStateAsync(d.Rule));
     }
 
     [Fact]
-    public async Task SoftDelete_OfAnAlreadyDeletedRule_IsTheAlreadyDeletedError()
+    public async Task OnALockedVersion_EveryScoreRuleWriteIsVersionLocked_WithOrWithoutExecutions()
     {
-        var d = await NewDesignAsync();
-        await Design().DeleteScoreRuleAsync(d.Rule2);
+        // A finalized-style lock (with an Execution), and a lock set on a version that never had one: both are final.
+        var withExecution = await NewDesignAsync();
+        await NewExecutionAsync(withExecution.Iteration);
+        await LockAsync(withExecution.Version);
+        var withoutExecution = await NewDesignAsync();
+        await LockAsync(withoutExecution.Version);
 
-        var ex = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(d.Rule2));
-        await AssertMappedAsync(ex, AlreadyDeleted, "score-rule-already-deleted");
-
-        // Also on a locked version with Executions (eligible lifecycle, RowState decides).
-        var locked = await NewDesignAsync();
-        await Design().DeleteScoreRuleAsync(locked.Rule2);
-        await AddReplacementRuleAsync(locked);
-        await NewExecutionAsync(locked.Iteration);
-        await LockAsync(locked.Version);
-        var lockedEx = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(locked.Rule2));
-        await AssertMappedAsync(lockedEx, AlreadyDeleted, "score-rule-already-deleted");
-    }
-
-    [Fact]
-    public async Task SoftDelete_OfARuleInAnyOtherRowState_IsTheInvalidRowStateError()
-    {
-        var d = await NewDesignAsync();
-        await ExecAsync("UPDATE dbo.ScoreRule SET RowState = 'X' WHERE ScoreRuleID = @r;", new { r = d.Rule2 });
-
-        var ex = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(d.Rule2));
-        await AssertMappedAsync(ex, InvalidRowState, "score-rule-invalid-rowstate");
-        Assert.Equal("X", await RowStateAsync(d.Rule2));
-
-        // Eligible because the version is locked (even with Executions), so the RowState check is reached.
-        var other = await NewDesignAsync();
-        await ExecAsync("UPDATE dbo.ScoreRule SET RowState = 'X' WHERE ScoreRuleID = @r;", new { r = other.Rule2 });
-        await AddReplacementRuleAsync(other);
-        await NewExecutionAsync(other.Iteration);
-        await LockAsync(other.Version);
-        var lockedEx = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(other.Rule2));
-        await AssertMappedAsync(lockedEx, InvalidRowState, "score-rule-invalid-rowstate");
-    }
-
-    [Fact]
-    public async Task OnALockedVersion_OnlyTheSoftDeleteShapeIsAdmittedForRules()
-    {
-        var d = await NewDesignAsync();
-        await NewExecutionAsync(d.Iteration);
-        await LockAsync(d.Version);
-
-        using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
-        foreach (var sql in new[]
+        foreach (var d in new[] { withExecution, withoutExecution })
         {
-            $"UPDATE dbo.ScoreRule SET WeightPercent = 1 WHERE ScoreRuleID = {d.Rule};",
-            $"UPDATE dbo.ScoreRule SET RowState = 'D', RuleNotes = N'extra' WHERE ScoreRuleID = {d.Rule};",
-            $"UPDATE dbo.ScoreRule SET RowState = 'X' WHERE ScoreRuleID = {d.Rule};",
-            $"DELETE dbo.ScoreRule WHERE ScoreRuleID = {d.Rule};",
-        })
+            var create = await Assert.ThrowsAsync<SqlException>(() => NewRuleAsync(d.Version, d.OtherPhase, 1m));
+            await AssertMappedAsync(create, VersionLocked, "version-locked");
+            var update = await Assert.ThrowsAsync<SqlException>(() => Design().UpdateScoreRuleAsync(d.Rule2, new UpdateScoreRuleRequest
+                { WeightPercent = 1m, MinScore = 0, MaxScore = 5 }));
+            await AssertMappedAsync(update, VersionLocked, "version-locked");
+            var delete = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(d.Rule2));
+            await AssertMappedAsync(delete, VersionLocked, "version-locked");
+
+            using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
+            foreach (var sql in new[]
+            {
+                $"UPDATE dbo.ScoreRule SET WeightPercent = 1 WHERE ScoreRuleID = {d.Rule};",
+                $"UPDATE dbo.ScoreRule SET RuleNotes = N'extra' WHERE ScoreRuleID = {d.Rule};",
+                $"DELETE dbo.ScoreRule WHERE ScoreRuleID = {d.Rule};",
+            })
+            {
+                var ex = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync(sql));
+                Assert.True(ex.Number == VersionLocked, $"expected {VersionLocked} but got {ex.Number} for: {sql}");
+            }
+
+            Assert.True(await RuleExistsAsync(d.Rule));
+            Assert.True(await RuleExistsAsync(d.Rule2));
+            Assert.Equal(50m, await RuleWeightAsync(d.Rule));
+        }
+    }
+
+    [Fact]
+    public async Task Status_NeitherAuthorizesNorBlocksScoreRuleWrites()
+    {
+        // A writable version whose StatusID says Locked or Retired still accepts every rule write...
+        var writable = await NewDesignAsync();
+        foreach (var status in new[] { fixture.LockedStatusId, fixture.RetiredStatusId })
         {
-            var ex = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync(sql));
-            Assert.True(ex.Number == VersionLocked, $"expected {VersionLocked} but got {ex.Number} for: {sql}");
+            await Design().SetExperimentVersionStatusAsync(writable.Version, new SetExperimentVersionStatusRequest { StatusID = status });
+            var rule = await NewRuleAsync(writable.Version, writable.OtherPhase, 0m);
+            await Design().UpdateScoreRuleAsync(rule, new UpdateScoreRuleRequest { WeightPercent = 0m, MinScore = 0, MaxScore = 9 });
+            await Design().DeleteScoreRuleAsync(rule);
         }
 
-        Assert.Equal("A", await RowStateAsync(d.Rule));
-        await ExecAsync($"UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = {d.Rule};");
-        Assert.Equal("D", await RowStateAsync(d.Rule));
+        // ...and a frozen or locked version whose StatusID says Draft still refuses them.
+        var frozen = await NewDesignAsync();
+        await NewExecutionAsync(frozen.Iteration);
+        await Design().SetExperimentVersionStatusAsync(frozen.Version, new SetExperimentVersionStatusRequest { StatusID = fixture.DraftStatusId });
+        await FrozenAsync(() => Design().DeleteScoreRuleAsync(frozen.Rule2), "frozen version with Draft status");
+
+        var locked = await NewDesignAsync();
+        await LockAsync(locked.Version);
+        await Design().SetExperimentVersionStatusAsync(locked.Version, new SetExperimentVersionStatusRequest { StatusID = fixture.DraftStatusId });
+        var ex = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(locked.Rule2));
+        await AssertMappedAsync(ex, VersionLocked, "version-locked");
+    }
+
+    [Fact]
+    public async Task TheForeignKeys_StillRefuseDeletingAReferencedRule_EvenOnAWritableVersion()
+    {
+        // The observation procedure never lets an observation use another version's rule, but a raw insert can
+        // (the ScoreObservation trigger guards only the observation's own version). Such a reference still keeps
+        // the rule: the foreign key refuses the delete before the guard trigger is reached.
+        var free = await NewDesignAsync();
+        var live = await NewDesignAsync();
+        var execution = await NewExecutionAsync(live.Iteration);
+        await ExecAsync(
+            "INSERT dbo.ScoreObservation (ExecutionID, ScoreRuleID, RaterID, ObservedScore) VALUES (@e, @r, @rater, 1);",
+            new { e = execution.ExecutionID, r = free.Rule2, rater = await NewRaterAsync() });
+
+        var api = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(free.Rule2));
+        Assert.Equal(547, api.Number);
+        var (status, body) = await ExceptionHandlingMiddlewareTests.RunAsync(api);
+        Assert.Equal(409, status);
+        Assert.Equal(ErrorCatalog.ConstraintViolation.Code, body.GetProperty("code").GetString());
+
+        var raw = await Assert.ThrowsAsync<SqlException>(() => ExecAsync($"DELETE dbo.ScoreRule WHERE ScoreRuleID = {free.Rule2};"));
+        Assert.Equal(547, raw.Number);
+
+        Assert.True(await RuleExistsAsync(free.Rule2));
     }
 
     // ---------------------------------------------------------------- serialization with Execution creation (#1)
@@ -692,6 +738,7 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
             () => Design().DeleteParameterAsync(d.Parameter),
             () => Design().CreateIterationAsync(new CreateIterationRequest { ExperimentVersionID = d.Version, Sequence = 9, IterationLabel = "i9", Prompt = "p" }),
             () => Design().UpdateExperimentVersionAsync(d.Version, new UpdateExperimentVersionRequest { Name = d.Name, VersionLabel = d.VersionLabel, EffectiveDateUTC = d.EffectiveDate, Description = "raced" }),
+            () => Design().UpdateScoreRuleAsync(d.Rule, new UpdateScoreRuleRequest { WeightPercent = 1, MinScore = 0, MaxScore = 5 }),
             () => Design().DeleteScoreRuleAsync(d.Rule2),
         };
         var racing = writes.Select(w => Task.Run(w)).ToList();
@@ -708,7 +755,8 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
 
         Assert.Equal(2, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Parameter WHERE ExperimentVersionID = @v;", new { v = d.Version }));
         Assert.Equal(2, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Iteration WHERE ExperimentVersionID = @v;", new { v = d.Version }));
-        Assert.Equal("A", await RowStateAsync(d.Rule2));
+        Assert.True(await RuleExistsAsync(d.Rule2));
+        Assert.Equal(50m, await RuleWeightAsync(d.Rule));
     }
 
     [Fact]
@@ -747,7 +795,7 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
         using var writer = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
         using var writerTransaction = writer.BeginTransaction();
         await AcquireAsync(writer, writerTransaction, d.Version);
-        await writer.ExecuteAsync("UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = @r;", new { r = d.Rule2 }, writerTransaction);
+        await writer.ExecuteAsync("DELETE dbo.ScoreRule WHERE ScoreRuleID = @r;", new { r = d.Rule2 }, writerTransaction);
 
         var execution = Task.Run(() => NewExecutionAsync(d.Iteration));
         await Task.Delay(500);

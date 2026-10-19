@@ -38,19 +38,14 @@ public interface IExperimentDesignRepository
     Task<bool> UpdateParameterAsync(Parameter parameter);
     Task<bool> DeleteParameterAsync(long id);
 
-    // ScoreRule — add/delete-only lifecycle; definitions are immutable after creation (no update).
-    /// <summary>Active (RowState = 'A') rules only — the normal selection list.</summary>
+    // ScoreRule (Issue #7) — create, update of the non-key fields, and physical delete, like Parameter.
     Task<IReadOnlyList<ScoreRule>> GetScoreRulesByExperimentVersionAsync(long experimentVersionId);
-
-    /// <summary>Resolves a rule regardless of RowState, for historical/internal resolution of existing references.</summary>
     Task<ScoreRule?> GetScoreRuleAsync(int id);
-
-    /// <summary>Always creates an Active rule — RowState is left to the database default ('A').</summary>
     Task<int?> CreateScoreRuleAsync(ScoreRule scoreRule);
 
-    /// <summary>
-    /// The dedicated soft-delete (Issue #4): sets RowState = 'D' and nothing else. Throws the design-frozen,
-    /// already-deleted or invalid-RowState error per the procedure's precedence; false if the rule does not exist.
-    /// </summary>
-    Task<bool> SoftDeleteScoreRuleAsync(int id);
+    /// <summary>Runs dbo.usp_UpdateScoreRule: WeightPercent, MinScore, MaxScore, Active and RuleNotes only.</summary>
+    Task<bool> UpdateScoreRuleAsync(ScoreRule scoreRule);
+
+    /// <summary>Runs dbo.usp_DeleteScoreRule: a physical delete. A referenced rule is refused by its foreign keys.</summary>
+    Task<bool> DeleteScoreRuleAsync(int id);
 }

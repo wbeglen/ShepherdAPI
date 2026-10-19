@@ -14,7 +14,7 @@ ShepherdAPI is a private, low-volume system for Alpha. The architecture optimize
 ## 2. System Boundary
 
 - ShepherdAPI is the sole system boundary. Clients never access the `Experiments` database directly.
-- The existing `Experiments` database ([database/Create_Experiments_Database_And_Tables-8.sql](../database/Create_Experiments_Database_And_Tables-8.sql), the current baseline) is authoritative. Its DDL is not redesigned. The only schema changes beyond the original design are explicit, authorized, additive ones: `ExperimentVersion.LockedUTC` (§5.3), `ScoreRule.RowState` (§5.5), the `ScoreObservationSnapshot` table (§5.7), and the snapshot `CHECK` constraints that move the schema toward the next baseline (§5.7, [database/upgrade/](../database/upgrade/)).
+- The existing `Experiments` database ([database/Create_Experiments_Database_And_Tables-9.sql](../database/Create_Experiments_Database_And_Tables-9.sql), the current baseline) is authoritative. Its DDL is not redesigned. The only schema changes beyond the original design are explicit and authorized: `ExperimentVersion.LockedUTC` (§5.3), the `ScoreObservationSnapshot` table (§5.7), the snapshot `CHECK` constraints that move the schema toward the next baseline (§5.7, [database/upgrade/](../database/upgrade/)), and the removal of `ScoreRule.RowState` in v9 (§5.5, Issue #7).
 - All new persistent operations pass through ShepherdAPI.
 - `Execution.ExecutionID` is `BIGINT`.
 - UTC is used for all persisted timestamps.
@@ -75,7 +75,7 @@ An `ExperimentVersion` moves through three states with respect to its data:
 |---|---|---|
 | **Design** | No `Execution` exists | The version's design (descriptive fields, Iterations, Parameters, ScoreRules) may be edited freely; Executions may be created. |
 | **Live** | At least one `Execution` exists and `LockedUTC IS NULL` | The design is frozen (§5.4). Executions, observations, artifacts and evidence continue to be recorded and corrected (§5.1, §5.6). |
-| **Final** | `LockedUTC IS NOT NULL` | Everything is frozen (§5.3) except `StatusID` and the ScoreRule soft-delete (§5.5). |
+| **Final** | `LockedUTC IS NOT NULL` | Everything is frozen (§5.3) except `StatusID`. |
 
 The transition Design → Live is the creation of the first `Execution`; it is permanent, because an `Execution` can never be deleted (§5.1). The transition Live → Final is finalization (§5.7). Both transitions are serialized against concurrent writers by the parent-version lock (§5.8).
 
@@ -83,7 +83,7 @@ All of these rules are enforced in the database — in controlled-write stored p
 
 ### 5.1 `Execution` — creation, `EndUTC`, and deletion
 
-**Creation guard.** An `Execution` can be created only through `dbo.usp_CreateExecution`, atomically with its checks and under the parent-version lock: the version must be unlocked (`version-locked` otherwise), and the Execution's phase must have a usable configuration — the version's `RowState = 'A'` ScoreRules for that phase must exist and total exactly `100.00` (`invalid-rule-configuration` otherwise, with the phase's rules described in the 409 body). `ScoreRule.Active` is ignored (§5.5). Nothing about the Execution's `StatusID` is checked.
+**Creation guard.** An `Execution` can be created only through `dbo.usp_CreateExecution`, atomically with its checks and under the parent-version lock: the version must be unlocked (`version-locked` otherwise), and the Execution's phase must have a usable configuration — the version's ScoreRules for that phase must exist and total exactly `100.00` (`invalid-rule-configuration` otherwise, with the phase's rules described in the 409 body). `ScoreRule.Active` is ignored (§5.5). Nothing about the Execution's `StatusID` is checked.
 
 **`EndUTC` — "the run finished".** Set by the machine/run process. Structural signal, backed by the existing `endutc_is_null_or_greaterequal_startutc` check constraint — no curation required. Once `EndUTC` is set, the execution's own run-facts become immutable through ShepherdAPI: `ModelUsed`, `InterfaceUsed`, `InterventionCount`, `OutcomeNotes`, `EndUTC` itself. This is enforced in the API layer and is independent of the `ExperimentVersion` lock (§5.3). It does *not* stop artifacts, observations or evidence from being recorded for that Execution while the version is not final. Finalization requires every Execution to have ended (§5.7).
 
@@ -109,7 +109,6 @@ Semantics:
 - `LockedUTC`, once set, cannot be cleared or changed.
 - **Exceptions after lock** (and only these):
   - `ExperimentVersion.StatusID` may continue to change (e.g., to `Retired`) without altering or being blocked by `LockedUTC`. Retirement does not remove or alter an existing lock.
-  - The dedicated ScoreRule soft-delete (§5.5), which changes only `ScoreRule.RowState`.
 - `StatusID` plays no part in locking. The lock endpoint accepts an optional `StatusID` for compatibility and ignores it; a Locked/Retired/Complete status value never causes, and is never required by, finalization. `LockedUTC` is the durable fact of finalization.
 
 Detecting writes that bypass ShepherdAPI after the fact (audit/tamper detection) is not attempted — no existing timestamp column reliably represents "when was this row written", since all existing timestamps are domain/business-event times (e.g. `ObservedUTC`). What the database does provide is *prevention*: the guard triggers (§5.8) reject governed writes from any connection, subject to the caveat on permissions in §7.
@@ -120,33 +119,32 @@ Detecting writes that bypass ShepherdAPI after the fact (audit/tamper detection)
 
 Once **any** `Execution` exists for an `ExperimentVersion`, the following are rejected with `design-frozen` (HTTP 409, distinct from `version-locked`):
 
-- create, update and delete of its `Iteration`s, `Parameter`s and `ScoreRule`s (the one exception is the ScoreRule soft-delete under its lifecycle condition, §5.5), and
+- create, update and delete of its `Iteration`s, `Parameter`s and `ScoreRule`s, and
 - updates to the version's `Name`, `VersionLabel`, `EffectiveDateUTC` and `Description`.
 
-The freeze is permanent and independent of the Execution's phase, completion state (`EndUTC`), or whether observations exist. `StatusID`, Executions, Artifacts, ScoreObservations and evidence links are unaffected. Design writes go through controlled-write procedures (`usp_UpdateExperimentVersion`, `usp_Create/Update/DeleteIteration`, `usp_Create/Update/DeleteParameter`, `usp_CreateScoreRule`, `usp_SoftDeleteScoreRule`) that take the parent-version lock before checking; the guard triggers repeat the check for writes that bypass them. Because Execution creation and design writes serialize on the same lock, a design write either commits before the first Execution or is rejected, and the first Execution always sees committed configuration. A row cannot be moved to another version to evade the freeze (identity/ownership columns are immutable, §5.8).
+The freeze is permanent and independent of the Execution's phase, completion state (`EndUTC`), or whether observations exist. `StatusID`, Executions, Artifacts, ScoreObservations and evidence links are unaffected. Design writes go through controlled-write procedures (`usp_UpdateExperimentVersion`, `usp_Create/Update/DeleteIteration`, `usp_Create/Update/DeleteParameter`, `usp_Create/Update/DeleteScoreRule`) that take the parent-version lock before checking; the guard triggers repeat the check for writes that bypass them. Because Execution creation and design writes serialize on the same lock, a design write either commits before the first Execution or is rejected, and the first Execution always sees committed configuration. A row cannot be moved to another version to evade the freeze (identity/ownership columns are immutable, §5.8).
 
 Check order for a design write: locked (`version-locked`) before frozen (`design-frozen`).
 
-### 5.5 `ScoreRule` lifecycle — add and soft-delete only
+### 5.5 `ScoreRule` lifecycle — create, update, physical delete (Issue #7)
 
-A `ScoreRule` is immutable after creation: there is no update operation. Its `RowState` is `'A'` (active, the database default) or `'D'` (retired). **`RowState = 'A'` is the only usable value**; `ScoreRule.Active` is retained but ignored everywhere (eligibility, Execution creation, observations, finalization). Rules are never physically deleted, so historical references stay valid. Listings return `'A'` rules only; resolving a rule by id returns it whatever its `RowState`.
+A `ScoreRule` follows exactly the rules of the other design tables (§5.4), with no exception. It is created (`POST /api/score-rules`), updated (`PUT /api/score-rules/{id}`) and physically deleted (`DELETE /api/score-rules/{id}`, HTTP 204) only while its version is **unlocked and has no Execution**: otherwise each write is `version-locked` (checked first) or `design-frozen`. `StatusID` never authorizes or blocks a rule write. The procedures `usp_CreateScoreRule`, `usp_UpdateScoreRule` and `usp_DeleteScoreRule` follow the parent-first lock protocol (§5.8), and `trg_ScoreRule_Guard` applies the same checks to any write that bypasses them, including a version locked without ever having had an Execution.
 
-`DELETE /api/score-rules/{id}` is the dedicated **soft-delete**. It changes nothing but `RowState`, and is the one write permitted to touch a ScoreRule of a locked version. After taking the parent-version lock, it evaluates, in this order:
+- **Update** replaces `WeightPercent`, `MinScore`, `MaxScore`, `Active` and `RuleNotes` (`MinScore < MaxScore` is a `400`). `ExperimentVersionID`, `PhaseID` and `ScoreCategoryID` are the rule's identity and ownership and never change (`identity-change-rejected`); to change them, delete the rule and create another.
+- **Delete** removes the row. A deleted rule no longer exists, so it no longer occupies its `(ExperimentVersionID, PhaseID, ScoreCategoryID)` combination, a second delete is `404`, and an observation naming it is refused by the foreign key (`constraint-violation`).
+- **Historical integrity.** Every rule that exists is usable, and once the first Execution exists the version's rules can no longer change in any way, so every rule a `ScoreObservation` or `ScoreObservationSnapshot` refers to is the rule as it was used. The foreign keys from both tables additionally refuse the delete of any referenced rule, whatever the version state.
+- `ScoreRule.Active` is retained but ignored everywhere (eligibility, Execution creation, observations, finalization). Listings return every rule of the version.
 
-1. **Lifecycle eligibility.** A *live* version (at least one Execution and `LockedUTC IS NULL`) is rejected with `design-frozen`. A version with no Executions, or a locked one, is eligible.
-2. **RowState.** `'A'` becomes `'D'` (HTTP 204); `'D'` is `score-rule-already-deleted`; any other value is `score-rule-invalid-rowstate`. The operation is therefore not idempotent.
-
-After finalization a rule may be retired without affecting the snapshot (§5.7).
+Before Issue #7 the schema carried `ScoreRule.RowState` and rules were soft-deleted, including after finalization. The v9 baseline drops the column; the deployment scripts drop `usp_SoftDeleteScoreRule` where it was deployed and no longer reference `RowState`. Its error numbers 50301, 50401 and 50402 are retired and not reused.
 
 ### 5.6 `ScoreObservation` write validation
 
-Observations are created and their content corrected only through `dbo.usp_CreateScoreObservation` and `dbo.usp_UpdateScoreObservationContent`, atomically with their checks and under the parent-version lock. Creation runs these checks in order; a content update runs only checks 1 and 4 (against the observation's existing rule):
+Observations are created and their content corrected only through `dbo.usp_CreateScoreObservation` and `dbo.usp_UpdateScoreObservationContent`, atomically with their checks and under the parent-version lock. Creation runs these checks in order; a content update runs only checks 1 and 3 (against the observation's existing rule):
 
 1. The Execution (or observation) must exist (404) and its version must be unlocked (`version-locked`).
-2. The rule must belong to the Execution's version and phase (`version-phase-mismatch`).
-3. The rule's `RowState` must be `'A'` (`unavailable-rule`).
-4. `ObservedScore` must lie within the rule's `MinScore`..`MaxScore`, inclusive (`out-of-range-score`, HTTP 400).
-5. A second observation for the same Execution, rule and rater is `duplicate-observation`.
+2. The rule must belong to the Execution's version and phase (`version-phase-mismatch`). A rule that does not exist is refused by the foreign key (`constraint-violation`).
+3. `ObservedScore` must lie within the rule's `MinScore`..`MaxScore`, inclusive (`out-of-range-score`, HTTP 400).
+4. A second observation for the same Execution, rule and rater is `duplicate-observation`.
 
 Work in progress never blocks a valid observation: an Execution without `EndUTC`, or a phase with no other observations, is fine. `ExecutionID`, `ScoreRuleID` and `RaterID` of an observation are immutable; only the score, `ObservedUTC` and notes can be corrected, until the version is final.
 
@@ -157,7 +155,7 @@ Work in progress never blocks a valid observation: an Execution without `EndUTC`
 1. Acquire the **exclusive** parent-version lock (waits for in-flight writers, blocks new ones).
 2. The version must exist (404) and be unlocked (`version-locked`; finalizing twice is a 409).
 3. No `ScoreObservationSnapshot` rows may already exist for it (`finalize-snapshot-rows-exist`).
-4. **Completeness.** The *configured phases* are the distinct `PhaseID`s of the version's `RowState = 'A'` ScoreRules. The version must have Executions (`finalize-no-executions`); every Execution must have `EndUTC` (`finalize-execution-not-ended`) and at least one observation (`finalize-execution-without-observation`); every Execution's phase must be a configured phase (`finalize-execution-phase-not-configured`); every configured phase must have at least one observation (`finalize-phase-without-observation`); and every configured phase's active rules must total exactly `100.00` (`finalize-phase-weight-invalid`).
+4. **Completeness.** The *configured phases* are the distinct `PhaseID`s of the version's ScoreRules. The version must have Executions (`finalize-no-executions`); every Execution must have `EndUTC` (`finalize-execution-not-ended`) and at least one observation (`finalize-execution-without-observation`); every Execution's phase must be a configured phase (`finalize-execution-phase-not-configured`); every configured phase must have at least one observation (`finalize-phase-without-observation`); and every configured phase's rules must total exactly `100.00` (`finalize-phase-weight-invalid`).
 5. **Observation integrity** is revalidated: each observation's rule belongs to the Execution's version and phase and the score is within range (`finalize-observation-integrity`).
 6. One `ScoreObservationSnapshot` row is inserted per `ScoreObservation` — all raters, no calculation: `ObservedScore` from the observation; `MinScore`, `MaxScore`, `WeightPercent` from the rule; `HigherIsBetter` from the rule's `ScoreCategory`; keys from the Execution and rule.
 7. `LockedUTC` and every row's `SnapshotUTC` are set to one database-generated UTC timestamp.
@@ -167,7 +165,7 @@ Each failed check has its own error code, and its 409 body names the offending E
 
 **Snapshot table.** The six-column primary key (`ExperimentVersionID`, `ExecutionID`, `PhaseID`, `ScoreCategoryID`, `ScoreRuleID`, `ScoreObservationID`) is preserved. Rows are created only by finalization: the procedure sets the session-context key `ShepherdAPI.FinalizingVersionID` to the version's id around its inserts, and the insert trigger requires it (`snapshot-insert-not-permitted` otherwise). Inserts for a locked version are rejected, and updates and deletes are always rejected (`version-locked`). `CHECK` constraints (`MinScore < MaxScore`, `WeightPercent` 0–100, `ObservedScore` between `MinScore` and `MaxScore`) are added by the `database/upgrade/` script. The token prevents out-of-procedure writes by accident; it is not strong protection (§7).
 
-**Snapshot authority.** Once a version is finalized, its snapshot rows are the immutable, authoritative scoring definitions and observations for that version. Later changes to the originating `ScoreRule` (including its `RowState`) or to `ScoreCategory.HigherIsBetter` do not alter snapshot membership, the facts preserved in it, or their reproducibility. Historical analysis derives scoring facts from the snapshot, not from the current lifecycle state of the originating rules.
+**Snapshot authority.** Once a version is finalized, its snapshot rows are the immutable, authoritative scoring definitions and observations for that version. The originating `ScoreRule` can no longer change (§5.5), and later changes to `ScoreCategory.HigherIsBetter` do not alter snapshot membership, the facts preserved in it, or their reproducibility. Historical analysis derives scoring facts from the snapshot, not from the current lifecycle state of the originating rules.
 
 ### 5.8 Parent-version lock protocol and database guards
 
@@ -193,7 +191,7 @@ Scripts are laid out under [database/](../database/README.md): the full-snapshot
 
 ### 6.2 Resource model
 
-REST resources map to the entity model in §4.1, roughly one resource per table, with nesting where the relationship is natural (e.g., evidence links scoped under a `ScoreObservation`). Reference/lookup entities (`Agent`, `ArtifactType`, `Phase`, `Rater`, `ScoreCategory`, `Status`) get simple CRUD endpoints since all new persistent operations — including experiment setup — pass through ShepherdAPI (§2). `ScoreObservationSnapshot` has no write endpoint; it is produced only by finalization (§5.7). `ScoreRule` has create, list, get and the soft-delete, but no update (§5.5).
+REST resources map to the entity model in §4.1, roughly one resource per table, with nesting where the relationship is natural (e.g., evidence links scoped under a `ScoreObservation`). Reference/lookup entities (`Agent`, `ArtifactType`, `Phase`, `Rater`, `ScoreCategory`, `Status`) get simple CRUD endpoints since all new persistent operations — including experiment setup — pass through ShepherdAPI (§2). `ScoreObservationSnapshot` has no write endpoint; it is produced only by finalization (§5.7). `ScoreRule` has create, list, get, update and delete, all limited to the Design state (§5.5).
 
 ### 6.3 Validation
 
@@ -205,7 +203,7 @@ Simple, FK-scoped list queries (e.g. `GET /executions?iterationId=`) and detail-
 
 ### 6.5 Deletion
 
-No `DELETE` endpoints are exposed for `Execution`, `ScoreObservation` or `Artifact`, consistent with the immutability model in §5 (and the database rejects Execution deletes outright). `Iteration` and `Parameter` can be deleted only while the version is in the Design state (§5.4). `ScoreRule`'s `DELETE` is the soft-delete of §5.5. `ScoreObservationEvidence` links may be added or removed while their governing `ExperimentVersion` is not final (correcting a mis-attached piece of evidence); once locked, removal is blocked like any other governed mutation.
+No `DELETE` endpoints are exposed for `Execution`, `ScoreObservation` or `Artifact`, consistent with the immutability model in §5 (and the database rejects Execution deletes outright). `Iteration`, `Parameter` and `ScoreRule` can be deleted only while the version is in the Design state (§5.4, §5.5); the delete is physical. `ScoreObservationEvidence` links may be added or removed while their governing `ExperimentVersion` is not final (correcting a mis-attached piece of evidence); once locked, removal is blocked like any other governed mutation.
 
 ### 6.6 Error contract
 
@@ -215,8 +213,8 @@ All errors are RFC 7807 `ProblemDetails` with a stable machine-readable `code` e
 |---|---|---|
 | 50100–50199 | shared / lock protocol | `version-locked` (50100), `identity-change-rejected` (50101) |
 | 50200–50299 | Execution guard | `invalid-rule-configuration` (50200) |
-| 50300–50399 | observation validation | `version-phase-mismatch` (50300), `unavailable-rule` (50301), `out-of-range-score` (50302, HTTP 400) |
-| 50400–50499 | design freeze | `design-frozen` (50400), `score-rule-already-deleted` (50401), `score-rule-invalid-rowstate` (50402), `execution-delete-rejected` (50403) |
+| 50300–50399 | observation validation | `version-phase-mismatch` (50300), `out-of-range-score` (50302, HTTP 400); 50301 is retired (§5.5) |
+| 50400–50499 | design freeze | `design-frozen` (50400), `execution-delete-rejected` (50403); 50401 and 50402 are retired (§5.5) |
 | 50500–50599 | finalization | `finalize-no-executions` … `finalize-snapshot-rows-exist` (50500–50507), `snapshot-insert-not-permitted` (50508) |
 
 Application errors keep their existing codes (`not-found`, `record-locked`, `conflict`, `validation-failed`, `duplicate-key`, `constraint-violation`, `internal-error`); the duplicate observation constraint is recognized as `duplicate-observation`. Deadlock victims and lock-wait timeouts become the single retryable `retryable-conflict`. An unregistered `THROW` number is a 500 `internal-error`. Some errors carry extra members (for example the offending ids of a failed finalization check, or the phase's rules for `invalid-rule-configuration`). The catalog, the numbering and the OpenAPI `ProblemDetails` responses are the contract ShepherdWeb builds against; how ShepherdWeb presents them is its own concern.
@@ -247,7 +245,8 @@ The lifecycle rules above were implemented, in dependency order, as GitHub Issue
 | #6 | Parent-version lock protocol; post-lock write guards; identity/ownership immutability | §5.3, §5.8 |
 | #1 | Execution insert guard (rule configuration must total 100.00) | §5.1 |
 | #3 | ScoreObservation write validation | §5.6 |
-| #4 | ExperimentVersion design freeze; ScoreRule soft-delete; Execution deletes rejected | §5.4, §5.5, §5.1 |
+| #4 | ExperimentVersion design freeze; ScoreRule soft-delete (replaced by #7); Execution deletes rejected | §5.4, §5.5, §5.1 |
 | #2 | Finalization and the score snapshot | §5.7 |
+| #7 | `ScoreRule.RowState` removed; ScoreRule update and physical delete in the Design state only | §5.5 |
 
 A decision to change any rule above should start from the corresponding issue.

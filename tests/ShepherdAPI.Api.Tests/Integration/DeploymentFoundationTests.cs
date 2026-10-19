@@ -9,16 +9,18 @@ namespace ShepherdAPI.Api.Tests.Integration;
 public class DeploymentFoundationTests(DatabaseFixture fixture)
 {
     [Fact]
-    public async Task FixtureSchema_MatchesV8()
+    public async Task FixtureSchema_MatchesV9()
     {
-        Assert.Equal("Create_Experiments_Database_And_Tables-8.sql", RepoPaths.BaselineDdlFileName);
+        Assert.Equal("Create_Experiments_Database_And_Tables-9.sql", RepoPaths.BaselineDdlFileName);
 
         using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
 
         Assert.Equal(1, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE name = 'ScoreObservationSnapshot';"));
         Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE name = 'WeightedScore';"));
         Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.check_constraints WHERE name = 'CK_ScoreRule_RowState';"));
-        Assert.Equal(1, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.default_constraints WHERE name = 'DF_ScoreRule_RowState';"));
+        Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.default_constraints WHERE name = 'DF_ScoreRule_RowState';"));
+        Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.ScoreRule') AND name = 'RowState';"));
+        Assert.Equal(1, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.key_constraints WHERE name = 'UC_ScoreRule_ExperimentVersionID_PhaseID_ScoreCategoryID';"));
         Assert.Equal(1, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.ExperimentVersion') AND name = 'LockedUTC';"));
         Assert.Equal(1, await connection.QuerySingleAsync<int>("SELECT COUNT(*) FROM sys.key_constraints WHERE name = 'PK_ScoreObservationSnapshot';"));
     }

@@ -20,7 +20,7 @@ public class ExecutionsController(IRecordingService service) : ControllerBase
     /// <summary>
     /// Creates an Execution. Refused with 404 if the iteration does not exist; otherwise with 409 and
     /// <c>code</c> = <c>version-locked</c> when the ExperimentVersion is locked, or
-    /// <c>invalid-rule-configuration</c> when the phase's active ScoreRules are missing or do not total
+    /// <c>invalid-rule-configuration</c> when the phase's ScoreRules are missing or do not total
     /// exactly 100.00 (the body then lists those rules, the expected total and the actual total).
     /// </summary>
     [HttpPost]

@@ -33,7 +33,7 @@ public interface IRecordingRepository
     /// <summary>
     /// Creates the observation through dbo.usp_CreateScoreObservation, which validates the version lock and the
     /// Execution/ScoreRule context and writes in one transaction. Returns null when the Execution does not exist;
-    /// failures surface as SqlException 50100 / 50300 / 50301 / 50302 (or 2627 for a duplicate).
+    /// failures surface as SqlException 50100 / 50300 / 50302 (or 2627 for a duplicate).
     /// </summary>
     Task<long?> CreateScoreObservationAsync(ScoreObservation observation);
 

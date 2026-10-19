@@ -181,15 +181,29 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
         return await GetScoreRuleAsync(id);
     }
 
-    /// <summary>
-    /// The dedicated ScoreRule soft-delete (Issue #4): RowState 'A' becomes 'D' (HTTP 204). Not idempotent: an
-    /// already-deleted rule is the score-rule-already-deleted error, and any other RowState is
-    /// score-rule-invalid-rowstate. A live version (it has Executions and is not locked) is design-frozen. The
-    /// lifecycle check runs before the RowState check, both under the parent-version lock, inside the procedure.
-    /// </summary>
+    public async Task<ScoreRule> UpdateScoreRuleAsync(int id, UpdateScoreRuleRequest request)
+    {
+        EnsureScoreRange(request.MinScore, request.MaxScore);
+
+        var scoreRule = await GetScoreRuleAsync(id);
+
+        scoreRule.WeightPercent = request.WeightPercent;
+        scoreRule.MinScore = request.MinScore;
+        scoreRule.MaxScore = request.MaxScore;
+        scoreRule.Active = request.Active;
+        scoreRule.RuleNotes = request.RuleNotes;
+        if (!await repository.UpdateScoreRuleAsync(scoreRule))
+        {
+            throw NotFound("ScoreRule", id);
+        }
+
+        return await GetScoreRuleAsync(id);
+    }
+
+    /// <summary>A physical delete (Issue #7); a second delete of the same rule is therefore 404.</summary>
     public async Task DeleteScoreRuleAsync(int id)
     {
-        if (!await repository.SoftDeleteScoreRuleAsync(id))
+        if (!await repository.DeleteScoreRuleAsync(id))
         {
             throw NotFound("ScoreRule", id);
         }

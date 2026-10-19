@@ -22,12 +22,9 @@ public class ErrorCatalogTests
         { "identity-change-rejected", HttpStatusCode.Conflict, 50101 },
         { "invalid-rule-configuration", HttpStatusCode.Conflict, 50200 },
         { "version-phase-mismatch", HttpStatusCode.Conflict, 50300 },
-        { "unavailable-rule", HttpStatusCode.Conflict, 50301 },
         { "out-of-range-score", HttpStatusCode.BadRequest, 50302 },
         { "duplicate-observation", HttpStatusCode.Conflict, null },
         { "design-frozen", HttpStatusCode.Conflict, 50400 },
-        { "score-rule-already-deleted", HttpStatusCode.Conflict, 50401 },
-        { "score-rule-invalid-rowstate", HttpStatusCode.Conflict, 50402 },
         { "execution-delete-rejected", HttpStatusCode.Conflict, 50403 },
         { "finalize-no-executions", HttpStatusCode.Conflict, 50500 },
         { "finalize-execution-not-ended", HttpStatusCode.Conflict, 50501 },
@@ -82,11 +79,8 @@ public class ErrorCatalogTests
     [InlineData("identity-change-rejected", ErrorCatalog.SharedRangeStart)]
     [InlineData("invalid-rule-configuration", ErrorCatalog.ExecutionGuardRangeStart)]
     [InlineData("version-phase-mismatch", ErrorCatalog.ObservationRangeStart)]
-    [InlineData("unavailable-rule", ErrorCatalog.ObservationRangeStart)]
     [InlineData("out-of-range-score", ErrorCatalog.ObservationRangeStart)]
     [InlineData("design-frozen", ErrorCatalog.DesignFreezeRangeStart)]
-    [InlineData("score-rule-already-deleted", ErrorCatalog.DesignFreezeRangeStart)]
-    [InlineData("score-rule-invalid-rowstate", ErrorCatalog.DesignFreezeRangeStart)]
     [InlineData("finalize-no-executions", ErrorCatalog.FinalizationRangeStart)]
     [InlineData("snapshot-insert-not-permitted", ErrorCatalog.FinalizationRangeStart)]
     public void Entry_LivesInItsOwnersRange(string code, int rangeStart)
@@ -94,6 +88,16 @@ public class ErrorCatalogTests
         var number = ErrorCatalog.FindByCode(code)!.SqlNumber!.Value;
 
         Assert.InRange(number, rangeStart, rangeStart + ErrorCatalog.RangeSize - 1);
+    }
+
+    [Theory]
+    [InlineData(50301, "unavailable-rule")]
+    [InlineData(50401, "score-rule-already-deleted")]
+    [InlineData(50402, "score-rule-invalid-rowstate")]
+    public void NumbersAndCodesRetiredWithRowState_AreNotReused(int sqlNumber, string code)
+    {
+        Assert.Null(ErrorCatalog.FindBySqlNumber(sqlNumber));
+        Assert.Null(ErrorCatalog.FindByCode(code));
     }
 
     [Fact]

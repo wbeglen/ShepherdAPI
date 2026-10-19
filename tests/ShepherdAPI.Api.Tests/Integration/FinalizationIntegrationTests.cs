@@ -303,9 +303,19 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
 
         // A later category edit does not change the HigherIsBetter copied into the snapshot...
         await ExecAsync("UPDATE dbo.ScoreCategory SET HigherIsBetter = 1 - HigherIsBetter WHERE ScoreCategoryID IN (@a, @b);", new { a = f.CategoryA1, b = f.CategoryA2 });
-        // ...and neither does retiring the originating rule after lock (the soft-delete is the one admitted post-lock write).
-        await Design().DeleteScoreRuleAsync(f.RuleA2);
-        Assert.Equal("D", (await Design().GetScoreRuleAsync(f.RuleA2)).RowState.Trim());
+        // ...and the originating rule cannot change after finalization (#7: no post-lock exception)...
+        var update = await Assert.ThrowsAsync<SqlException>(() => Design().UpdateScoreRuleAsync(f.RuleA2, new UpdateScoreRuleRequest { WeightPercent = 1m, MinScore = 0, MaxScore = 5 }));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, update.Number);
+        var delete = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(f.RuleA2));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, delete.Number);
+
+        // ...nor be deleted even with the guard trigger bypassed: the observation and snapshot foreign keys keep it.
+        await WithTriggerDisabledAsync("ScoreRule", "trg_ScoreRule_Guard", async () =>
+        {
+            var raw = await Assert.ThrowsAsync<SqlException>(() => ExecAsync("DELETE dbo.ScoreRule WHERE ScoreRuleID = @r;", new { r = f.RuleA2 }));
+            Assert.Equal(547, raw.Number);
+        });
+        Assert.Equal(40m, (await Design().GetScoreRuleAsync(f.RuleA2)).WeightPercent);
 
         var after = await Rows();
         Assert.Equal(before.Count, after.Count);
@@ -315,7 +325,7 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
                          (a.ScoreRuleID, a.ScoreCategoryID, a.ObservedScore, a.MinScore, a.MaxScore, a.WeightPercent, a.HigherIsBetter, a.SnapshotUTC));
         }
 
-        Assert.Contains(after, r => r.ScoreRuleID == f.RuleA2); // membership unchanged although the rule is now 'D'
+        Assert.Contains(after, r => r.ScoreRuleID == f.RuleA2);
     }
 
     [Fact]
@@ -425,10 +435,11 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
     {
         var f = await BuildAsync();
 
-        // Normal flow cannot reach this state (a live version's rules cannot be retired), so retire phase B's only
-        // rule behind the guard trigger's back.
+        // Normal flow cannot reach this state (a live version's rules cannot change), and phase B's only rule is
+        // observed, so it cannot be deleted either: move it to an unused phase behind the guard trigger's back.
+        var unusedPhase = await NewPhaseAsync();
         await WithTriggerDisabledAsync("ScoreRule", "trg_ScoreRule_Guard",
-            () => ExecAsync("UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = @r;", new { r = f.RuleB }));
+            () => ExecAsync("UPDATE dbo.ScoreRule SET PhaseID = @p WHERE ScoreRuleID = @r;", new { p = unusedPhase, r = f.RuleB }));
 
         var body = await FailsAsync(f.Version, "finalize-execution-phase-not-configured");
 

@@ -1,15 +1,16 @@
+using Microsoft.Data.SqlClient;
 using ShepherdAPI.Api.Contracts;
 using ShepherdAPI.Api.Data;
-using ShepherdAPI.Api.Models;
+using ShepherdAPI.Api.Infrastructure;
 using ShepherdAPI.Api.Services;
 using Xunit;
 
 namespace ShepherdAPI.Api.Tests.Integration;
 
 /// <summary>
-/// Verifies ScoreRule's add/delete-only lifecycle (RowState 'A'/'D') against a real SQL Server
-/// database: Active-only listing, database-default creation, soft deletion, historical by-ID
-/// resolution, and that existing ScoreObservation references to a retired rule keep working.
+/// Verifies ScoreRule's lifecycle (Issue #7) against a real SQL Server database: rules are created, updated and
+/// physically deleted while the version is writable, and once the first Execution exists every rule an
+/// observation refers to stays exactly as it was used.
 /// </summary>
 [Collection("Database")]
 public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
@@ -32,7 +33,7 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
             Description = "ScoreRule lifecycle test.",
         })).ExperimentVersionID;
 
-    private CreateScoreRuleRequest NewRuleRequest(long experimentVersionId, int? scoreCategoryId = null, decimal weight = 50m) => new()
+    private CreateScoreRuleRequest NewRuleRequest(long experimentVersionId, int? scoreCategoryId = null, decimal weight = 50m, bool active = true) => new()
     {
         ExperimentVersionID = experimentVersionId,
         PhaseID = fixture.PhaseId,
@@ -40,40 +41,47 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
         WeightPercent = weight,
         MinScore = 0,
         MaxScore = 5,
-        Active = true,
+        Active = active,
     };
 
     [Fact]
-    public async Task CreateScoreRuleAsync_DefaultsToActiveRowState()
-    {
-        var designService = CreateDesignService();
-        var experimentVersionId = await CreateExperimentVersionAsync(designService);
-
-        var created = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId));
-
-        Assert.Equal(RowState.Active.ToString(), created.RowState);
-    }
-
-    [Fact]
-    public async Task GetScoreRulesAsync_ReturnsOnlyActiveRowsForTheExperimentVersion()
+    public async Task GetScoreRulesAsync_ReturnsEveryRuleOfTheExperimentVersion_AndNoDeletedOnes()
     {
         var designService = CreateDesignService();
         var experimentVersionId = await CreateExperimentVersionAsync(designService);
 
         var keep = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId));
-        var retire = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId, fixture.ScoreCategoryId2));
+        var inactive = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId, fixture.ScoreCategoryId2, active: false));
+        var otherVersion = await CreateExperimentVersionAsync(designService);
+        await designService.CreateScoreRuleAsync(NewRuleRequest(otherVersion));
 
-        await designService.DeleteScoreRuleAsync(retire.ScoreRuleID);
+        // ScoreRule.Active plays no part in listing.
+        var rules = await designService.GetScoreRulesAsync(experimentVersionId);
+        Assert.Equal([keep.ScoreRuleID, inactive.ScoreRuleID], rules.Select(r => r.ScoreRuleID).Order());
 
-        var active = await designService.GetScoreRulesAsync(experimentVersionId);
-
-        Assert.Contains(active, r => r.ScoreRuleID == keep.ScoreRuleID);
-        Assert.DoesNotContain(active, r => r.ScoreRuleID == retire.ScoreRuleID);
-        Assert.All(active, r => Assert.Equal(RowState.Active.ToString(), r.RowState));
+        await designService.DeleteScoreRuleAsync(inactive.ScoreRuleID);
+        Assert.Equal([keep.ScoreRuleID], (await designService.GetScoreRulesAsync(experimentVersionId)).Select(r => r.ScoreRuleID));
     }
 
     [Fact]
-    public async Task DeleteScoreRuleAsync_SoftDeletes_RowStillResolvableById()
+    public async Task UpdateScoreRuleAsync_ReplacesTheNonKeyFields()
+    {
+        var designService = CreateDesignService();
+        var experimentVersionId = await CreateExperimentVersionAsync(designService);
+        var rule = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId));
+
+        var updated = await designService.UpdateScoreRuleAsync(rule.ScoreRuleID, new UpdateScoreRuleRequest
+        {
+            WeightPercent = 75.5m, MinScore = -2, MaxScore = 8, Active = false, RuleNotes = "corrected",
+        });
+
+        Assert.Equal((rule.ScoreRuleID, experimentVersionId, fixture.PhaseId, fixture.ScoreCategoryId),
+                     (updated.ScoreRuleID, updated.ExperimentVersionID, updated.PhaseID, updated.ScoreCategoryID));
+        Assert.Equal((75.5m, -2, 8, false, "corrected"), (updated.WeightPercent, updated.MinScore, updated.MaxScore, updated.Active, updated.RuleNotes));
+    }
+
+    [Fact]
+    public async Task DeleteScoreRuleAsync_IsAPhysicalDelete_ASecondDeleteIsNotFound()
     {
         var designService = CreateDesignService();
         var experimentVersionId = await CreateExperimentVersionAsync(designService);
@@ -81,36 +89,31 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
 
         await designService.DeleteScoreRuleAsync(rule.ScoreRuleID);
 
-        // Not a physical delete: GetScoreRuleAsync (historical/internal resolution) still finds it,
-        // now marked 'D' rather than gone.
-        var resolved = await designService.GetScoreRuleAsync(rule.ScoreRuleID);
-        Assert.Equal(RowState.Deleted.ToString(), resolved.RowState);
+        await Assert.ThrowsAsync<NotFoundException>(() => designService.GetScoreRuleAsync(rule.ScoreRuleID));
+        await Assert.ThrowsAsync<NotFoundException>(() => designService.DeleteScoreRuleAsync(rule.ScoreRuleID));
     }
 
     [Fact]
-    public async Task DeleteScoreRuleAsync_IsNotIdempotent_ASecondDeleteIsTheAlreadyDeletedError()
+    public async Task ADeletedDraftRule_NoLongerOccupiesItsVersionPhaseCategoryCombination()
     {
         var designService = CreateDesignService();
         var experimentVersionId = await CreateExperimentVersionAsync(designService);
-        var rule = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId));
+        var original = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId, weight: 30m));
 
-        await designService.DeleteScoreRuleAsync(rule.ScoreRuleID);
+        await designService.DeleteScoreRuleAsync(original.ScoreRuleID);
+        var replacement = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId, weight: 100m));
 
-        // Issue #4 replaced the idempotent no-op with an explicit already-deleted error (50401).
-        var ex = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => designService.DeleteScoreRuleAsync(rule.ScoreRuleID));
-        Assert.Equal(50401, ex.Number);
-
-        var resolved = await designService.GetScoreRuleAsync(rule.ScoreRuleID);
-        Assert.Equal(RowState.Deleted.ToString(), resolved.RowState);
+        Assert.NotEqual(original.ScoreRuleID, replacement.ScoreRuleID);
+        Assert.Equal(100m, replacement.WeightPercent);
     }
 
     [Fact]
-    public async Task RetiringAScoreRule_PreservesExistingScoreObservationReferences()
+    public async Task AfterTheFirstExecution_TheRuleAndItsObservationReferenceAreFixed_ThroughFinalization()
     {
         var designService = CreateDesignService();
         var recordingService = CreateRecordingService();
         var experimentVersionId = await CreateExperimentVersionAsync(designService);
-        // The phase's active rules must total 100.00 before an Execution can be created (Issue #1).
+        // The phase's rules must total 100.00 before an Execution can be created (Issue #1).
         var rule = await designService.CreateScoreRuleAsync(NewRuleRequest(experimentVersionId, weight: 100m));
 
         var iteration = await designService.CreateIterationAsync(new CreateIterationRequest
@@ -126,19 +129,24 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
         {
             ExecutionID = execution.ExecutionID, ScoreRuleID = rule.ScoreRuleID, RaterID = fixture.RaterId, ObservedScore = 4,
         });
+        var change = new UpdateScoreRuleRequest { WeightPercent = 10m, MinScore = 0, MaxScore = 5 };
 
-        // Retire the rule after it has already been used for scoring. The version has an Execution, so it is
-        // live (Issue #4) until it is finalized; the soft-delete is permitted once it is locked.
+        async Task<int> Rejected(Func<Task> write) => (await Assert.ThrowsAsync<SqlException>(write)).Number;
+
+        // Live (has an Execution, unlocked): design-frozen.
+        Assert.Equal(ErrorCatalog.DesignFrozen.SqlNumber, await Rejected(() => designService.UpdateScoreRuleAsync(rule.ScoreRuleID, change)));
+        Assert.Equal(ErrorCatalog.DesignFrozen.SqlNumber, await Rejected(() => designService.DeleteScoreRuleAsync(rule.ScoreRuleID)));
+
+        // Final (locked): version-locked.
         await recordingService.UpdateExecutionRunFactsAsync(execution.ExecutionID, new UpdateExecutionRunFactsRequest { EndUTC = DateTime.UtcNow });
         await designService.LockExperimentVersionAsync(experimentVersionId, new LockExperimentVersionRequest());
-        await designService.DeleteScoreRuleAsync(rule.ScoreRuleID);
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, await Rejected(() => designService.UpdateScoreRuleAsync(rule.ScoreRuleID, change)));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, await Rejected(() => designService.DeleteScoreRuleAsync(rule.ScoreRuleID)));
 
-        // The existing observation, and its reference to the now-retired rule, remain fully valid.
+        // The observation still refers to the rule, which is still listed exactly as it was used.
         var reloadedObservation = await recordingService.GetScoreObservationAsync(observation.ScoreObservationID);
         Assert.Equal(rule.ScoreRuleID, reloadedObservation.ScoreRuleID);
-
-        var reloadedRule = await designService.GetScoreRuleAsync(reloadedObservation.ScoreRuleID);
-        Assert.Equal(RowState.Deleted.ToString(), reloadedRule.RowState);
-        Assert.Equal(rule.WeightPercent, reloadedRule.WeightPercent);
+        var listed = Assert.Single(await designService.GetScoreRulesAsync(experimentVersionId));
+        Assert.Equal((rule.ScoreRuleID, rule.WeightPercent, rule.MinScore, rule.MaxScore), (listed.ScoreRuleID, listed.WeightPercent, listed.MinScore, listed.MaxScore));
     }
 }

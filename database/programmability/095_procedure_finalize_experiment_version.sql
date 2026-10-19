@@ -6,14 +6,14 @@
 --      blocks new ones until commit.
 --   2. The version must exist (@Found = 0 otherwise; the API maps that to 404) and be unlocked      -> 50100
 --   3. No ScoreObservationSnapshot rows may already exist for the version                          -> 50507
---   4. Completeness. The configured phases are the distinct PhaseIDs of the version's ScoreRules with
---      RowState = 'A' (ScoreRule.Active is deliberately ignored everywhere):
+--   4. Completeness. The configured phases are the distinct PhaseIDs of the version's ScoreRules
+--      (ScoreRule.Active is deliberately ignored everywhere):
 --        the version has Executions                                                                -> 50500
 --        every Execution has EndUTC                                                                -> 50501
 --        every Execution has at least one observation                                              -> 50502
 --        every Execution's phase is a configured phase                                             -> 50503
 --        every configured phase has at least one observation                                       -> 50504
---        every configured phase's active rules total exactly 100.00                                -> 50505
+--        every configured phase's rules total exactly 100.00                                       -> 50505
 --   5. Observation integrity: each observation's rule belongs to the Execution's version and phase, and
 --      ObservedScore lies within the rule's MinScore..MaxScore inclusive                           -> 50506
 --   6. One snapshot row per ScoreObservation (all raters, no calculation), inserted with the session-context
@@ -88,7 +88,7 @@ BEGIN
         INSERT INTO @Phases (PhaseID, RuleCount, TotalWeight)
             SELECT PhaseID, COUNT(*), SUM(WeightPercent)
             FROM dbo.ScoreRule
-            WHERE ExperimentVersionID = @ExperimentVersionID AND RowState = 'A'
+            WHERE ExperimentVersionID = @ExperimentVersionID
             GROUP BY PhaseID;
 
         -- 4a. The version has Executions.
@@ -138,7 +138,7 @@ BEGIN
             );
             SET @more = CASE WHEN @total > 50 THEN CONCAT(N' (and ', @total - 50, N' more)') ELSE N'' END;
             SET @msg = CONCAT(N'ExperimentVersion ', @ExperimentVersionID, N' cannot be finalized: ', @total,
-                N' Execution(s) are in phase(s) with no active ScoreRule (phase ', @phaseIds, N'): ', @ids, @more,
+                N' Execution(s) are in phase(s) with no ScoreRule (phase ', @phaseIds, N'): ', @ids, @more,
                 N'. [ExecutionIDs=', @ids, N';PhaseIDs=', @phaseIds, N';Total=', @total, N']');
             THROW 50503, @msg, 1;
         END
@@ -158,7 +158,7 @@ BEGIN
             THROW 50504, @msg, 1;
         END
 
-        -- 4f. Every configured phase's active rules total exactly 100.00.
+        -- 4f. Every configured phase's rules total exactly 100.00.
         SELECT @total = COUNT(*) FROM @Phases WHERE TotalWeight <> 100.00;
         IF @total > 0
         BEGIN
@@ -171,7 +171,7 @@ BEGIN
             );
             SET @more = CASE WHEN @total > 50 THEN CONCAT(N' (and ', @total - 50, N' more)') ELSE N'' END;
             SET @msg = CONCAT(N'ExperimentVersion ', @ExperimentVersionID, N' cannot be finalized: ', @total,
-                N' configured phase(s) do not have active rules totaling exactly 100.00 (', @weights, N'): ', @ids, @more,
+                N' configured phase(s) do not have rules totaling exactly 100.00 (', @weights, N'): ', @ids, @more,
                 N'. [PhaseIDs=', @ids, N';Total=', @total, N']');
             THROW 50505, @msg, 1;
         END

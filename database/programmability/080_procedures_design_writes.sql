@@ -7,7 +7,8 @@
 -- Holding the update lock across the check and the write serializes these procedures against
 -- usp_CreateExecution (Issue #1): a design write either commits before the first Execution or is rejected.
 -- The guard triggers (040) remain as the defence for any write that bypasses these procedures.
--- The ScoreRule soft-delete is the one narrow exception: see usp_SoftDeleteScoreRule.
+-- Issue #7: ScoreRule follows the same rules as Iteration and Parameter, with no exceptions: create, update
+-- and physical delete, all only while the version is unlocked and has no Execution.
 -- Re-runnable (CREATE OR ALTER).
 SET ANSI_NULLS ON
 GO
@@ -301,7 +302,9 @@ END
 GO
 
 -- -- ScoreRule ---------------------------------------------------------------------------------
--- ScoreRule is add/delete-only: there is no update procedure.
+-- Issue #7: the soft-delete procedure is replaced by usp_DeleteScoreRule, so remove it where it was deployed.
+DROP PROCEDURE IF EXISTS dbo.usp_SoftDeleteScoreRule;
+GO
 
 CREATE OR ALTER PROCEDURE dbo.usp_CreateScoreRule
     @ExperimentVersionID bigint,
@@ -332,7 +335,6 @@ BEGIN
 
     EXEC dbo.usp_AssertDesignWritable @ExperimentVersionID, @lockedUtc;
 
-    -- RowState is left to its database default ('A').
     INSERT INTO dbo.ScoreRule (ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes)
     VALUES (@ExperimentVersionID, @PhaseID, @ScoreCategoryID, @WeightPercent, @MinScore, @MaxScore, @Active, @RuleNotes);
 
@@ -341,12 +343,57 @@ BEGIN
 END
 GO
 
--- The dedicated ScoreRule soft-delete: the only write permitted to touch a ScoreRule of a locked version,
--- and it changes nothing but RowState ('A' -> 'D'). Precedence, after the parent-version lock is held:
---   1. lifecycle eligibility: a LIVE version (has an Execution and LockedUTC IS NULL) -> THROW 50400
---      (design-frozen); a version with no Execution, or a locked one, is eligible
---   2. RowState: 'A' -> soft-delete; 'D' -> THROW 50401 (already deleted); anything else -> THROW 50402.
-CREATE OR ALTER PROCEDURE dbo.usp_SoftDeleteScoreRule
+-- Changes the non-key configuration only. ExperimentVersionID, PhaseID and ScoreCategoryID are the rule's identity
+-- and ownership and never change (trg_ScoreRule_Guard, 50101).
+CREATE OR ALTER PROCEDURE dbo.usp_UpdateScoreRule
+    @ScoreRuleID int,
+    @WeightPercent decimal(5, 2),
+    @MinScore int,
+    @MaxScore int,
+    @Active bit,
+    @RuleNotes nvarchar(300) = NULL,
+    @Found bit OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    SET @Found = 0;
+    BEGIN TRANSACTION;
+
+    -- A rule never changes version (identity columns are immutable), so reading it before the lock is safe.
+    DECLARE @versionId bigint = (SELECT ExperimentVersionID FROM dbo.ScoreRule WHERE ScoreRuleID = @ScoreRuleID);
+    IF @versionId IS NULL
+    BEGIN
+        ROLLBACK TRANSACTION;
+        RETURN;
+    END
+
+    DECLARE @versionFound bit, @lockedUtc datetime2(3);
+    EXEC dbo.usp_AcquireVersionLock @versionId, 0, @versionFound OUTPUT, @lockedUtc OUTPUT;
+
+    -- Deleting the rule takes the same lock, so re-check now that we hold it.
+    IF NOT EXISTS (SELECT 1 FROM dbo.ScoreRule WHERE ScoreRuleID = @ScoreRuleID)
+    BEGIN
+        ROLLBACK TRANSACTION;
+        RETURN;
+    END
+    SET @Found = 1;
+
+    EXEC dbo.usp_AssertDesignWritable @versionId, @lockedUtc;
+
+    UPDATE dbo.ScoreRule
+    SET WeightPercent = @WeightPercent, MinScore = @MinScore, MaxScore = @MaxScore, Active = @Active, RuleNotes = @RuleNotes
+    WHERE ScoreRuleID = @ScoreRuleID;
+
+    COMMIT TRANSACTION;
+END
+GO
+
+-- Physically deletes the rule, which frees its (ExperimentVersionID, PhaseID, ScoreCategoryID) combination.
+-- Only a version that is unlocked and has no Execution is writable, so no ScoreObservation or snapshot row can
+-- reference the rule; the foreign keys from both tables refuse the delete regardless (547).
+CREATE OR ALTER PROCEDURE dbo.usp_DeleteScoreRule
     @ScoreRuleID int,
     @Found bit OUTPUT
 AS
@@ -367,36 +414,16 @@ BEGIN
     DECLARE @versionFound bit, @lockedUtc datetime2(3);
     EXEC dbo.usp_AcquireVersionLock @versionId, 0, @versionFound OUTPUT, @lockedUtc OUTPUT;
 
-    -- ScoreRules are never physically deleted, but re-read the row under the lock for its current RowState.
-    DECLARE @rowState char(1) = (SELECT RowState FROM dbo.ScoreRule WHERE ScoreRuleID = @ScoreRuleID);
-    IF @rowState IS NULL
+    IF NOT EXISTS (SELECT 1 FROM dbo.ScoreRule WHERE ScoreRuleID = @ScoreRuleID)
     BEGIN
         ROLLBACK TRANSACTION;
         RETURN;
     END
     SET @Found = 1;
 
-    IF @lockedUtc IS NULL AND dbo.fn_VersionHasExecutions(@versionId) = 1
-    BEGIN
-        DECLARE @liveMessage nvarchar(2048) = CONCAT(
-            N'ExperimentVersion ', @versionId,
-            N' is live (it has Executions and is not locked); its ScoreRules cannot be deleted until it is finalized.');
-        THROW 50400, @liveMessage, 1;
-    END
+    EXEC dbo.usp_AssertDesignWritable @versionId, @lockedUtc;
 
-    IF @rowState = 'D'
-    BEGIN
-        DECLARE @deletedMessage nvarchar(2048) = CONCAT(N'ScoreRule ', @ScoreRuleID, N' is already deleted.');
-        THROW 50401, @deletedMessage, 1;
-    END
-
-    IF @rowState <> 'A'
-    BEGIN
-        DECLARE @invalidMessage nvarchar(2048) = CONCAT(N'ScoreRule ', @ScoreRuleID, N' has an invalid RowState ''', @rowState, N'''; only ''A'' can be deleted.');
-        THROW 50402, @invalidMessage, 1;
-    END
-
-    UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = @ScoreRuleID AND RowState = 'A';
+    DELETE FROM dbo.ScoreRule WHERE ScoreRuleID = @ScoreRuleID;
 
     COMMIT TRANSACTION;
 END

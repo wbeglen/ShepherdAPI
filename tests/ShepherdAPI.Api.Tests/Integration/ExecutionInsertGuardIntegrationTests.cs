@@ -12,7 +12,7 @@ using Xunit;
 namespace ShepherdAPI.Api.Tests.Integration;
 
 /// <summary>
-/// Issue #1: creating an Execution requires the phase's usable ScoreRules to total exactly 100.00 in an
+/// Issue #1: creating an Execution requires the phase's ScoreRules to total exactly 100.00 in an
 /// unlocked version. Real SQL Server, through the service and dbo.usp_CreateExecution.
 /// </summary>
 [Collection("Database")]
@@ -20,7 +20,7 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
 {
     private static int _sequence = 20000;
 
-    private sealed record Rule(int Phase, decimal Weight, bool Active = true, bool Retired = false);
+    private sealed record Rule(int Phase, decimal Weight, bool Active = true, bool Deleted = false);
 
     private ExperimentDesignService Design() => new(new ExperimentDesignRepository(fixture.ConnectionFactory));
 
@@ -68,7 +68,7 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
                 WeightPercent = rule.Weight, MinScore = 0, MaxScore = 5, Active = rule.Active,
             });
             ruleIds.Add(created.ScoreRuleID);
-            if (rule.Retired)
+            if (rule.Deleted)
             {
                 await design.DeleteScoreRuleAsync(created.ScoreRuleID);
             }
@@ -138,27 +138,30 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
     }
 
     [Fact]
-    public async Task RetiredRules_DoNotContributeToTheTotal()
+    public async Task DeletedRules_DoNotContributeToTheTotal()
     {
-        // 100 active + 50 retired: the retired rule is not counted, so the total is still exactly 100.
-        var (_, permittedIteration, _) = await SetupAsync(new Rule(fixture.PhaseId, 100m), new Rule(fixture.PhaseId, 50m, Retired: true));
+        // 100 kept + 50 deleted: the deleted rule no longer exists, so the total is exactly 100.
+        var (_, permittedIteration, _) = await SetupAsync(new Rule(fixture.PhaseId, 100m), new Rule(fixture.PhaseId, 50m, Deleted: true));
         await Recording().CreateExecutionAsync(Request(permittedIteration, fixture.PhaseId));
 
-        // 50 active + 50 retired: a retired rule cannot help reach 100.
-        var (_, rejectedIteration, _) = await SetupAsync(new Rule(fixture.PhaseId, 50m), new Rule(fixture.PhaseId, 50m, Retired: true));
+        // 50 kept + 50 deleted: a deleted rule cannot help reach 100.
+        var (_, rejectedIteration, _) = await SetupAsync(new Rule(fixture.PhaseId, 50m), new Rule(fixture.PhaseId, 50m, Deleted: true));
         await AssertInvalidConfigurationAsync(
             () => Recording().CreateExecutionAsync(Request(rejectedIteration, fixture.PhaseId)), 50m, 1);
         Assert.Equal(0, await ExecutionCountAsync(rejectedIteration));
     }
 
     [Fact]
-    public async Task RowStateValuesOtherThanActive_AreNotUsable()
+    public async Task AnUpdatedRule_CountsWithItsCurrentWeight()
     {
         var (_, iteration, ruleIds) = await SetupAsync(new Rule(fixture.PhaseId, 60m), new Rule(fixture.PhaseId, 40m));
-        await ExecAsync($"UPDATE dbo.ScoreRule SET RowState = 'X' WHERE ScoreRuleID = {ruleIds[1]};");
+        await Design().UpdateScoreRuleAsync(ruleIds[1], new UpdateScoreRuleRequest { WeightPercent = 30m, MinScore = 0, MaxScore = 5 });
 
         await AssertInvalidConfigurationAsync(
-            () => Recording().CreateExecutionAsync(Request(iteration, fixture.PhaseId)), 60m, 1);
+            () => Recording().CreateExecutionAsync(Request(iteration, fixture.PhaseId)), 90m, 2);
+
+        await Design().UpdateScoreRuleAsync(ruleIds[1], new UpdateScoreRuleRequest { WeightPercent = 40m, MinScore = 0, MaxScore = 5 });
+        await Recording().CreateExecutionAsync(Request(iteration, fixture.PhaseId));
     }
 
     [Fact]
@@ -249,9 +252,9 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
     // ---------------------------------------------------------------- error bodies
 
     [Fact]
-    public async Task InvalidConfigurationBody_ListsTheActiveRules_AndMatchesTheDocumentedContract()
+    public async Task InvalidConfigurationBody_ListsThePhaseRules_AndMatchesTheDocumentedContract()
     {
-        var (version, iteration, ruleIds) = await SetupAsync(new Rule(fixture.PhaseId, 60m), new Rule(fixture.PhaseId, 50m), new Rule(fixture.PhaseId, 25m, Retired: true));
+        var (version, iteration, ruleIds) = await SetupAsync(new Rule(fixture.PhaseId, 60m), new Rule(fixture.PhaseId, 50m), new Rule(fixture.PhaseId, 25m, Deleted: true));
         var thrown = await Assert.ThrowsAsync<CatalogException>(() => Recording().CreateExecutionAsync(Request(iteration, fixture.PhaseId)));
 
         var (status, body) = await ExceptionHandlingMiddlewareTests.RunAsync(thrown);
@@ -264,7 +267,7 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
         Assert.Equal(fixture.PhaseId, problem.PhaseID);
         Assert.Equal(100.00m, problem.ExpectedWeightPercent);
         Assert.Equal(110.00m, problem.ActualWeightPercent);
-        Assert.Equal([ruleIds[0], ruleIds[1]], problem.ScoreRules!.Select(r => r.ScoreRuleID).Order()); // the retired rule is not listed
+        Assert.Equal([ruleIds[0], ruleIds[1]], problem.ScoreRules!.Select(r => r.ScoreRuleID).Order()); // the deleted rule is not listed
         Assert.Equal([60m, 50m], problem.ScoreRules!.OrderBy(r => r.ScoreRuleID).Select(r => r.WeightPercent));
     }
 

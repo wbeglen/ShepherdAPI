@@ -82,3 +82,16 @@ public class CreateScoreRuleRequest
     [MaxLength(300)] public string? RuleNotes { get; set; }
 }
 
+/// <summary>
+/// Replaces a ScoreRule's non-key configuration (Issue #7). ExperimentVersionID, PhaseID and ScoreCategoryID are the
+/// rule's identity and cannot change; delete the rule and create another to change them.
+/// </summary>
+public class UpdateScoreRuleRequest
+{
+    [Range(0, 100)] public decimal WeightPercent { get; set; }
+    public int MinScore { get; set; }
+    public int MaxScore { get; set; }
+    public bool Active { get; set; } = true;
+    [MaxLength(300)] public string? RuleNotes { get; set; }
+}
+

@@ -66,15 +66,39 @@ public class ExperimentDesignServiceTests
     }
 
     [Fact]
-    public async Task DeleteScoreRuleAsync_IsTheSoftDelete_AndThrowsNotFoundOnlyWhenTheRuleDoesNotExist()
+    public async Task DeleteScoreRuleAsync_IsThePhysicalDelete_AndThrowsNotFoundOnlyWhenTheRuleDoesNotExist()
     {
-        _repository.Setup(r => r.SoftDeleteScoreRuleAsync(5)).ReturnsAsync(true);
-        _repository.Setup(r => r.SoftDeleteScoreRuleAsync(6)).ReturnsAsync(false);
+        _repository.Setup(r => r.DeleteScoreRuleAsync(5)).ReturnsAsync(true);
+        _repository.Setup(r => r.DeleteScoreRuleAsync(6)).ReturnsAsync(false);
 
         await _sut.DeleteScoreRuleAsync(5);
         await Assert.ThrowsAsync<NotFoundException>(() => _sut.DeleteScoreRuleAsync(6));
 
         _repository.Verify(r => r.GetExperimentVersionAsync(It.IsAny<long>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task UpdateScoreRuleAsync_SendsOnlyTheNonKeyFields_OnTheExistingIdentity()
+    {
+        var existing = new ScoreRule { ScoreRuleID = 5, ExperimentVersionID = 1, PhaseID = 2, ScoreCategoryID = 3, WeightPercent = 50m, MinScore = 0, MaxScore = 5, Active = true };
+        _repository.Setup(r => r.GetScoreRuleAsync(5)).ReturnsAsync(existing);
+        ScoreRule? sent = null;
+        _repository.Setup(r => r.UpdateScoreRuleAsync(It.IsAny<ScoreRule>())).Callback<ScoreRule>(r => sent = r).ReturnsAsync(true);
+
+        await _sut.UpdateScoreRuleAsync(5, new UpdateScoreRuleRequest { WeightPercent = 20m, MinScore = 1, MaxScore = 9, Active = false, RuleNotes = "n" });
+
+        Assert.NotNull(sent);
+        Assert.Equal((5, 1L, 2, 3), (sent!.ScoreRuleID, sent.ExperimentVersionID, sent.PhaseID, sent.ScoreCategoryID));
+        Assert.Equal((20m, 1, 9, false, "n"), (sent.WeightPercent, sent.MinScore, sent.MaxScore, sent.Active, sent.RuleNotes));
+    }
+
+    [Fact]
+    public async Task UpdateScoreRuleAsync_RejectsAnInvalidRange_BeforeTouchingTheRepository()
+    {
+        await Assert.ThrowsAsync<ValidationAppException>(() =>
+            _sut.UpdateScoreRuleAsync(5, new UpdateScoreRuleRequest { WeightPercent = 20m, MinScore = 5, MaxScore = 5 }));
+
+        _repository.Verify(r => r.UpdateScoreRuleAsync(It.IsAny<ScoreRule>()), Times.Never);
     }
 
     [Fact]

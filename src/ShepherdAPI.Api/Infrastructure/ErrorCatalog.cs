@@ -17,8 +17,10 @@ public sealed record ErrorEntry(string Code, HttpStatusCode Status, string Title
 ///   50100-50199 shared / lock protocol
 ///   50200-50299 Execution guard
 ///   50300-50399 observation validation
-///   50400-50499 design freeze (including the ScoreRule soft-delete rejections)
+///   50400-50499 design freeze
 ///   50500-50599 finalization
+/// Retired numbers are never reused: 50301 (unavailable-rule), 50401 (score-rule-already-deleted) and
+/// 50402 (score-rule-invalid-rowstate) went with ScoreRule.RowState in Issue #7.
 /// </summary>
 public static class ErrorCatalog
 {
@@ -47,7 +49,6 @@ public static class ErrorCatalog
 
     // -- Observation validation (50300-50399) --
     public static readonly ErrorEntry VersionPhaseMismatch = new("version-phase-mismatch", HttpStatusCode.Conflict, "Version Or Phase Mismatch", 50300);
-    public static readonly ErrorEntry UnavailableRule = new("unavailable-rule", HttpStatusCode.Conflict, "Unavailable Rule", 50301);
     public static readonly ErrorEntry OutOfRangeScore = new("out-of-range-score", HttpStatusCode.BadRequest, "Out Of Range Score", 50302);
 
     /// <summary>Raised by the unique constraint, not by THROW, so it has no SQL number.</summary>
@@ -55,8 +56,6 @@ public static class ErrorCatalog
 
     // -- Design freeze (50400-50499) --
     public static readonly ErrorEntry DesignFrozen = new("design-frozen", HttpStatusCode.Conflict, "Design Frozen", 50400);
-    public static readonly ErrorEntry ScoreRuleAlreadyDeleted = new("score-rule-already-deleted", HttpStatusCode.Conflict, "ScoreRule Already Deleted", 50401);
-    public static readonly ErrorEntry ScoreRuleInvalidRowState = new("score-rule-invalid-rowstate", HttpStatusCode.Conflict, "ScoreRule Invalid RowState", 50402);
     public static readonly ErrorEntry ExecutionDeleteRejected = new("execution-delete-rejected", HttpStatusCode.Conflict, "Execution Delete Rejected", 50403);
 
     // -- Finalization (50500-50599) --
@@ -80,8 +79,8 @@ public static class ErrorCatalog
         NotFound, RecordLocked, Conflict, ValidationFailed, DuplicateKey, ConstraintViolation, InternalError,
         VersionLocked, IdentityChangeRejected,
         InvalidRuleConfiguration,
-        VersionPhaseMismatch, UnavailableRule, OutOfRangeScore, DuplicateObservation,
-        DesignFrozen, ScoreRuleAlreadyDeleted, ScoreRuleInvalidRowState, ExecutionDeleteRejected,
+        VersionPhaseMismatch, OutOfRangeScore, DuplicateObservation,
+        DesignFrozen, ExecutionDeleteRejected,
         FinalizeNoExecutions, FinalizeExecutionNotEnded, FinalizeExecutionWithoutObservation,
         FinalizeExecutionPhaseNotConfigured, FinalizePhaseWithoutObservation, FinalizePhaseWeightInvalid,
         FinalizeObservationIntegrity, FinalizeSnapshotRowsExist, SnapshotInsertNotPermitted,

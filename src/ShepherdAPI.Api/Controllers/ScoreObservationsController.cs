@@ -20,7 +20,7 @@ public class ScoreObservationsController(IRecordingService service) : Controller
     /// <summary>
     /// Records an observation. 404 if the Execution does not exist. Refused with <c>code</c> =
     /// <c>version-locked</c> (409), <c>version-phase-mismatch</c> (409: the rule belongs to another version or phase),
-    /// <c>unavailable-rule</c> (409: the rule is not RowState 'A'), <c>out-of-range-score</c> (400: outside the rule's
+    /// <c>out-of-range-score</c> (400: outside the rule's
     /// MinScore..MaxScore, inclusive) or <c>duplicate-observation</c> (409: same Execution, rule and rater).
     /// </summary>
     [HttpPost]
