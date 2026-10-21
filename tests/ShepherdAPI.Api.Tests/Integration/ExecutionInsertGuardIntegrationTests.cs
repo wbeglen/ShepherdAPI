@@ -27,7 +27,7 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
     private RecordingService Recording(ISqlConnectionFactory? factory = null)
     {
         var f = factory ?? fixture.ConnectionFactory;
-        return new RecordingService(new RecordingRepository(f), new ExperimentDesignRepository(f), new LockGuardQueries(f));
+        return new RecordingService(new RecordingRepository(f), new ExperimentDesignRepository(f));
     }
 
     private async Task<T> ScalarAsync<T>(string sql, object? parameters = null)

@@ -21,6 +21,7 @@ public class ErrorCatalogTests
         { "version-locked", HttpStatusCode.Conflict, 50100 },
         { "identity-change-rejected", HttpStatusCode.Conflict, 50101 },
         { "invalid-rule-configuration", HttpStatusCode.Conflict, 50200 },
+        { "execution-run-facts-frozen", HttpStatusCode.Conflict, 50201 },
         { "version-phase-mismatch", HttpStatusCode.Conflict, 50300 },
         { "out-of-range-score", HttpStatusCode.BadRequest, 50302 },
         { "duplicate-observation", HttpStatusCode.Conflict, null },

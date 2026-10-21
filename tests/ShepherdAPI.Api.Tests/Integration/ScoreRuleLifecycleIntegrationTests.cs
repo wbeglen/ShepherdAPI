@@ -20,8 +20,7 @@ public class ScoreRuleLifecycleIntegrationTests(DatabaseFixture fixture)
 
     private RecordingService CreateRecordingService() =>
         new(new RecordingRepository(fixture.ConnectionFactory),
-            new ExperimentDesignRepository(fixture.ConnectionFactory),
-            new LockGuardQueries(fixture.ConnectionFactory));
+            new ExperimentDesignRepository(fixture.ConnectionFactory));
 
     private async Task<long> CreateExperimentVersionAsync(ExperimentDesignService designService) =>
         (await designService.CreateExperimentVersionAsync(new CreateExperimentVersionRequest

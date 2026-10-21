@@ -21,7 +21,11 @@ public class ArtifactsController(IRecordingService service) : ControllerBase
     [HttpGet("{id:long}")]
     public async Task<ActionResult<Artifact>> GetById(long id) => Ok(await service.GetArtifactAsync(id));
 
+    /// <summary>Registers the Artifact. 409 version-locked once the governing ExperimentVersion is locked.</summary>
     [HttpPost]
+    [ProducesResponseType(typeof(Artifact), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<Artifact>> Create(CreateArtifactRequest request)
     {
         var created = await service.CreateArtifactAsync(request);

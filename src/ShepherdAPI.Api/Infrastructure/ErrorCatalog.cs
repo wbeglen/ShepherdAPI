@@ -47,6 +47,8 @@ public static class ErrorCatalog
     // -- Execution guard (50200-50299) --
     public static readonly ErrorEntry InvalidRuleConfiguration = new("invalid-rule-configuration", HttpStatusCode.Conflict, "Invalid Rule Configuration", 50200);
 
+    public static readonly ErrorEntry ExecutionRunFactsFrozen = new("execution-run-facts-frozen", HttpStatusCode.Conflict, "Execution Run-Facts Frozen", 50201);
+
     // -- Observation validation (50300-50399) --
     public static readonly ErrorEntry VersionPhaseMismatch = new("version-phase-mismatch", HttpStatusCode.Conflict, "Version Or Phase Mismatch", 50300);
     public static readonly ErrorEntry OutOfRangeScore = new("out-of-range-score", HttpStatusCode.BadRequest, "Out Of Range Score", 50302);
@@ -79,7 +81,7 @@ public static class ErrorCatalog
     [
         NotFound, RecordLocked, Conflict, ValidationFailed, DuplicateKey, ConstraintViolation, InternalError,
         VersionLocked, IdentityChangeRejected,
-        InvalidRuleConfiguration,
+        InvalidRuleConfiguration, ExecutionRunFactsFrozen,
         VersionPhaseMismatch, OutOfRangeScore, DuplicateObservation,
         DesignFrozen, ExecutionDeleteRejected,
         FinalizeNoExecutions, FinalizeExecutionNotEnded, FinalizeExecutionWithoutObservation,

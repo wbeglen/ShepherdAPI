@@ -39,7 +39,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
     {
         var designRepository = new ExperimentDesignRepository(fixture.ConnectionFactory);
         var design = new ExperimentDesignService(designRepository);
-        var recording = new RecordingService(new RecordingRepository(fixture.ConnectionFactory), designRepository, new LockGuardQueries(fixture.ConnectionFactory));
+        var recording = new RecordingService(new RecordingRepository(fixture.ConnectionFactory), designRepository);
 
         async Task<long> NewVersion(string tag) => (await design.CreateExperimentVersionAsync(new CreateExperimentVersionRequest
         {

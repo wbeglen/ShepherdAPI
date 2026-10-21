@@ -13,33 +13,44 @@ public class RecordingServiceTests
 {
     private readonly Mock<IRecordingRepository> _repository = new();
     private readonly Mock<IExperimentDesignRepository> _designRepository = new();
-    private readonly Mock<ILockGuardQueries> _lockGuard = new();
     private readonly RecordingService _sut;
 
     public RecordingServiceTests()
     {
-        _sut = new RecordingService(_repository.Object, _designRepository.Object, _lockGuard.Object);
+        _sut = new RecordingService(_repository.Object, _designRepository.Object);
     }
 
     [Fact]
-    public async Task UpdateExecutionRunFactsAsync_ThrowsRecordLocked_WhenEndUtcAlreadySet()
+    public async Task UpdateExecutionRunFactsAsync_LeavesTheLockAndEndUtcChecksToTheProcedure()
     {
+        // The Execution already has an EndUTC and the pre-read says so, yet the service neither checks nor throws: the
+        // restriction is evaluated by dbo.usp_UpdateExecutionRunFacts under the parent-version lock.
         var execution = new Execution { ExecutionID = 1, StartUTC = DateTime.UtcNow.AddHours(-1), EndUTC = DateTime.UtcNow };
         _repository.Setup(r => r.GetExecutionAsync(1)).ReturnsAsync(execution);
-        _lockGuard.Setup(l => l.GetLockedUtcByExecutionIdAsync(1)).ReturnsAsync((DateTime?)null);
+        _repository.Setup(r => r.UpdateExecutionRunFactsAsync(1, null, null, 0, null, null)).ReturnsAsync(true);
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => _sut.UpdateExecutionRunFactsAsync(1, new UpdateExecutionRunFactsRequest()));
+        var updated = await _sut.UpdateExecutionRunFactsAsync(1, new UpdateExecutionRunFactsRequest());
+
+        Assert.Equal(1, updated.ExecutionID);
+        _repository.Verify(r => r.UpdateExecutionRunFactsAsync(1, null, null, 0, null, null), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateExecutionRunFactsAsync_ThrowsNotFound_WhenTheExecutionDoesNotExist_WithoutCallingTheProcedure()
+    {
+        _repository.Setup(r => r.GetExecutionAsync(1)).ReturnsAsync((Execution?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.UpdateExecutionRunFactsAsync(1, new UpdateExecutionRunFactsRequest()));
         _repository.Verify(r => r.UpdateExecutionRunFactsAsync(It.IsAny<long>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<DateTime?>()), Times.Never);
     }
 
     [Fact]
-    public async Task UpdateExecutionRunFactsAsync_ThrowsRecordLocked_WhenGoverningExperimentVersionLocked()
+    public async Task UpdateExecutionRunFactsAsync_ThrowsNotFound_WhenTheProcedureReportsItGone()
     {
-        var execution = new Execution { ExecutionID = 1, StartUTC = DateTime.UtcNow.AddHours(-1), EndUTC = null };
-        _repository.Setup(r => r.GetExecutionAsync(1)).ReturnsAsync(execution);
-        _lockGuard.Setup(l => l.GetLockedUtcByExecutionIdAsync(1)).ReturnsAsync(DateTime.UtcNow);
+        _repository.Setup(r => r.GetExecutionAsync(1)).ReturnsAsync(new Execution { ExecutionID = 1, StartUTC = DateTime.UtcNow });
+        _repository.Setup(r => r.UpdateExecutionRunFactsAsync(1, null, null, 0, null, null)).ReturnsAsync(false);
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => _sut.UpdateExecutionRunFactsAsync(1, new UpdateExecutionRunFactsRequest()));
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.UpdateExecutionRunFactsAsync(1, new UpdateExecutionRunFactsRequest()));
     }
 
     [Fact]
@@ -48,24 +59,68 @@ public class RecordingServiceTests
         var start = DateTime.UtcNow;
         var execution = new Execution { ExecutionID = 1, StartUTC = start, EndUTC = null };
         _repository.Setup(r => r.GetExecutionAsync(1)).ReturnsAsync(execution);
-        _lockGuard.Setup(l => l.GetLockedUtcByExecutionIdAsync(1)).ReturnsAsync((DateTime?)null);
 
         var request = new UpdateExecutionRunFactsRequest { EndUTC = start.AddSeconds(-1) };
 
         await Assert.ThrowsAsync<ValidationAppException>(() => _sut.UpdateExecutionRunFactsAsync(1, request));
+        _repository.Verify(r => r.UpdateExecutionRunFactsAsync(It.IsAny<long>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<DateTime?>()), Times.Never);
     }
 
     [Fact]
-    public async Task AddEvidenceAsync_RejectsArtifactFromDifferentExecution()
+    public async Task AddEvidenceAsync_RejectsArtifactFromDifferentExecution_WithoutCallingTheProcedure()
     {
         var observation = new ScoreObservation { ScoreObservationID = 1, ExecutionID = 10 };
         var artifact = new Artifact { ArtifactID = 5, ExecutionID = 99 };
         _repository.Setup(r => r.GetScoreObservationAsync(1)).ReturnsAsync(observation);
-        _lockGuard.Setup(l => l.GetLockedUtcByScoreObservationIdAsync(1)).ReturnsAsync((DateTime?)null);
         _repository.Setup(r => r.GetArtifactAsync(5)).ReturnsAsync(artifact);
 
         await Assert.ThrowsAsync<ValidationAppException>(() => _sut.AddEvidenceAsync(1, new CreateScoreObservationEvidenceRequest { ArtifactID = 5 }));
         _repository.Verify(r => r.CreateEvidenceLinkAsync(It.IsAny<ScoreObservationEvidence>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddEvidenceAsync_LinksWhenTheExecutionsMatch_AndLeavesTheLockToTheProcedure()
+    {
+        _repository.Setup(r => r.GetScoreObservationAsync(1)).ReturnsAsync(new ScoreObservation { ScoreObservationID = 1, ExecutionID = 10 });
+        _repository.Setup(r => r.GetArtifactAsync(5)).ReturnsAsync(new Artifact { ArtifactID = 5, ExecutionID = 10 });
+        _repository.Setup(r => r.CreateEvidenceLinkAsync(It.IsAny<ScoreObservationEvidence>())).ReturnsAsync(true);
+
+        var link = await _sut.AddEvidenceAsync(1, new CreateScoreObservationEvidenceRequest { ArtifactID = 5, EvidenceNotes = "n" });
+
+        Assert.Equal((1L, 5L, "n"), (link.ScoreObservationID, link.ArtifactID, link.EvidenceNotes));
+    }
+
+    [Fact]
+    public async Task AddEvidenceAsync_ThrowsNotFound_WhenTheProcedureReportsATargetGone()
+    {
+        _repository.Setup(r => r.GetScoreObservationAsync(1)).ReturnsAsync(new ScoreObservation { ScoreObservationID = 1, ExecutionID = 10 });
+        _repository.Setup(r => r.GetArtifactAsync(5)).ReturnsAsync(new Artifact { ArtifactID = 5, ExecutionID = 10 });
+        _repository.Setup(r => r.CreateEvidenceLinkAsync(It.IsAny<ScoreObservationEvidence>())).ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.AddEvidenceAsync(1, new CreateScoreObservationEvidenceRequest { ArtifactID = 5 }));
+    }
+
+    [Fact]
+    public async Task RemoveEvidenceAsync_ThrowsNotFound_WhenTheLinkDoesNotExist()
+    {
+        _repository.Setup(r => r.GetScoreObservationAsync(1)).ReturnsAsync(new ScoreObservation { ScoreObservationID = 1, ExecutionID = 10 });
+        _repository.Setup(r => r.DeleteEvidenceLinkAsync(1, 5)).ReturnsAsync(false);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.RemoveEvidenceAsync(1, 5));
+    }
+
+    [Fact]
+    public async Task CreateArtifactAsync_ThrowsNotFound_WhenTheExecutionDoesNotExist_OrVanishesBeforeTheProcedure()
+    {
+        var request = new CreateArtifactRequest { ExecutionID = 7, ArtifactTypeID = 1, OriginalName = "n", OriginalURI = "u", StoredURI = "u", MimeType = "m", SHA256 = new string('a', 64) };
+
+        _repository.Setup(r => r.GetExecutionAsync(7)).ReturnsAsync((Execution?)null);
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.CreateArtifactAsync(request));
+        _repository.Verify(r => r.CreateArtifactAsync(It.IsAny<Artifact>()), Times.Never);
+
+        _repository.Setup(r => r.GetExecutionAsync(7)).ReturnsAsync(new Execution { ExecutionID = 7 });
+        _repository.Setup(r => r.CreateArtifactAsync(It.IsAny<Artifact>())).ReturnsAsync((long?)null);
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.CreateArtifactAsync(request));
     }
 
     [Fact]
@@ -96,7 +151,6 @@ public class RecordingServiceTests
         var created = await _sut.CreateExecutionAsync(new CreateExecutionRequest { IterationID = 5 });
 
         Assert.Equal(42, created.ExecutionID);
-        _lockGuard.Verify(l => l.GetLockedUtcByIterationIdAsync(It.IsAny<long>()), Times.Never);
     }
 
     [Fact]
@@ -129,7 +183,6 @@ public class RecordingServiceTests
         var created = await _sut.CreateScoreObservationAsync(new CreateScoreObservationRequest { ExecutionID = 10, ScoreRuleID = 1, RaterID = 1, ObservedScore = 3 });
 
         Assert.Equal(77, created.ScoreObservationID);
-        _lockGuard.Verify(l => l.GetLockedUtcByExecutionIdAsync(It.IsAny<long>()), Times.Never);
     }
 
     [Fact]
@@ -161,6 +214,5 @@ public class RecordingServiceTests
         var updated = await _sut.UpdateScoreObservationContentAsync(5, new UpdateScoreObservationContentRequest { ObservedScore = 4 });
 
         Assert.Equal(4m, updated.ObservedScore);
-        _lockGuard.Verify(l => l.GetLockedUtcByScoreObservationIdAsync(It.IsAny<long>()), Times.Never);
     }
 }

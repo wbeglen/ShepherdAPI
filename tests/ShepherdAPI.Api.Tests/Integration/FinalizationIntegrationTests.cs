@@ -26,7 +26,7 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
     private ExperimentDesignService Design() => new(new ExperimentDesignRepository(fixture.ConnectionFactory));
 
     private RecordingService Recording() =>
-        new(new RecordingRepository(fixture.ConnectionFactory), new ExperimentDesignRepository(fixture.ConnectionFactory), new LockGuardQueries(fixture.ConnectionFactory));
+        new(new RecordingRepository(fixture.ConnectionFactory), new ExperimentDesignRepository(fixture.ConnectionFactory));
 
     // ---------------------------------------------------------------- helpers
 

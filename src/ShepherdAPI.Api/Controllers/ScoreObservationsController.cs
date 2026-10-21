@@ -51,14 +51,23 @@ public class ScoreObservationsController(IRecordingService service) : Controller
     public async Task<ActionResult<IReadOnlyList<ScoreObservationEvidence>>> GetEvidence(long id) =>
         Ok(await service.GetEvidenceAsync(id));
 
+    /// <summary>Links an Artifact of the same Execution to the observation. 409 version-locked once the version is locked; 409 duplicate-key for an existing link.</summary>
     [HttpPost("{id:long}/evidence")]
+    [ProducesResponseType(typeof(ScoreObservationEvidence), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ScoreObservationEvidence>> AddEvidence(long id, CreateScoreObservationEvidenceRequest request)
     {
         var link = await service.AddEvidenceAsync(id, request);
         return CreatedAtAction(nameof(GetEvidence), new { id }, link);
     }
 
+    /// <summary>Removes the link. 409 version-locked once the version is locked; 404 when the link does not exist.</summary>
     [HttpDelete("{id:long}/evidence/{artifactId:long}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RemoveEvidence(long id, long artifactId)
     {
         await service.RemoveEvidenceAsync(id, artifactId);
