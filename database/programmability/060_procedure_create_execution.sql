@@ -30,6 +30,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_CreateExecution
     @IterationFound bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_CreateExecution must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 

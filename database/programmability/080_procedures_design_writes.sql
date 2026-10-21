@@ -45,6 +45,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_UpdateExperimentVersion
     @Found bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_UpdateExperimentVersion must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -82,6 +87,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_CreateIteration
     @VersionFound bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_CreateIteration must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -116,6 +126,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_UpdateIteration
     @Found bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_UpdateIteration must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -156,6 +171,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_DeleteIteration
     @Found bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_DeleteIteration must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -199,6 +219,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_CreateParameter
     @VersionFound bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_CreateParameter must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -232,6 +257,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_UpdateParameter
     @Found bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_UpdateParameter must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -270,6 +300,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_DeleteParameter
     @Found bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_DeleteParameter must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -319,6 +354,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_CreateScoreRule
     @VersionFound bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_CreateScoreRule must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -355,6 +395,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_UpdateScoreRule
     @Found bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_UpdateScoreRule must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -398,6 +443,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_DeleteScoreRule
     @Found bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_DeleteScoreRule must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 

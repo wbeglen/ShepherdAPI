@@ -677,9 +677,11 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
 
         await Assert.ThrowsAsync<SqlException>(() => Run(failing.Version));
         Assert.Null(await connection.QuerySingleAsync<long?>("SELECT TRY_CONVERT(bigint, SESSION_CONTEXT(N'ShepherdAPI.FinalizingVersionID'));"));
+        Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT @@TRANCOUNT;")); // no procedure-owned transaction left open
 
         await Run(good.Version);
         Assert.Null(await connection.QuerySingleAsync<long?>("SELECT TRY_CONVERT(bigint, SESSION_CONTEXT(N'ShepherdAPI.FinalizingVersionID'));"));
+        Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT @@TRANCOUNT;"));
     }
 
     // ---------------------------------------------------------------- snapshot immutability and insert control
@@ -859,14 +861,12 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
         var f = await BuildAsync();
         var newRater = await NewRaterAsync();
 
-        // Finalization is running (its transaction is held open by an enclosing transaction) and owns the exclusive lock.
+        // A finalizer holds the exclusive lock. The controlled-write procedures must be called standalone (Issue #10),
+        // so the lock is held directly, exactly as usp_FinalizeExperimentVersion takes it; the version is locked inside
+        // that transaction the way finalization locks it (with the token helper from Issue #9).
         using var finalizer = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
         using var finalizerTransaction = finalizer.BeginTransaction();
-        var parameters = new DynamicParameters();
-        parameters.Add("@ExperimentVersionID", f.Version);
-        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
-        parameters.Add("@LockedUTC", dbType: DbType.DateTime2, direction: ParameterDirection.Output);
-        await finalizer.ExecuteAsync("dbo.usp_FinalizeExperimentVersion", parameters, finalizerTransaction, commandType: CommandType.StoredProcedure);
+        await AcquireAsync(finalizer, finalizerTransaction, f.Version, exclusive: true);
 
         var writes = new Func<Task>[]
         {
@@ -881,6 +881,7 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
         // The parameter delete targets a missing row, so it fails fast with 404; every other write must be waiting.
         Assert.Equal(4, writes.Count(t => !t.IsCompleted));
 
+        await LockedUtcTestHelper.LockAsync(finalizer, f.Version, finalizerTransaction);
         finalizerTransaction.Commit();
 
         foreach (var write in writes)
@@ -899,9 +900,9 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
             }
         }
 
-        Assert.Equal(6, await SnapshotCountAsync(f.Version));
         Assert.Equal(0, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreObservation WHERE RaterID = @r;", new { r = newRater }));
         Assert.Equal(3, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Execution WHERE IterationID = @i;", new { i = f.Iteration }));
+        Assert.Equal(1, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ExperimentVersion WHERE ExperimentVersionID = @v AND LockedUTC IS NOT NULL;", new { v = f.Version }));
     }
 
     [Fact]

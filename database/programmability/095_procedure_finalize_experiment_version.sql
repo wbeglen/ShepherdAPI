@@ -39,6 +39,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_FinalizeExperimentVersion
     @LockedUTC datetime2(3) OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_FinalizeExperimentVersion must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -46,9 +51,11 @@ BEGIN
     SET @LockedUTC = NULL;
 
     DECLARE @ids nvarchar(max), @total int, @more nvarchar(40), @msg nvarchar(2048);
+    DECLARE @startedTransaction bit = 0;
 
     BEGIN TRY
         BEGIN TRANSACTION;
+        SET @startedTransaction = 1;
 
         -- 1-2. Exclusive lock, then existence and lock state.
         DECLARE @currentLocked datetime2(3);
@@ -233,7 +240,8 @@ BEGIN
         -- The token is session state, not transactional: always clear it so a pooled connection never keeps it.
         EXEC sys.sp_set_session_context @key = N'ShepherdAPI.FinalizingVersionID', @value = NULL;
 
-        IF @@TRANCOUNT > 0
+        -- Roll back only a transaction this procedure started (the standalone check above makes that always the case).
+        IF @startedTransaction = 1 AND @@TRANCOUNT > 0
             ROLLBACK TRANSACTION;
 
         SET @LockedUTC = NULL;

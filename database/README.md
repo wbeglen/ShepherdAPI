@@ -6,6 +6,8 @@
 2. `upgrade/` — schema changes made after the current baseline (for example the `ScoreObservationSnapshot` CHECK constraints, which v9 does not yet include).
 3. `programmability/` — stored procedures, views, functions and triggers.
 
+Controlled-write procedures (`usp_Create…`, `usp_Update…`, `usp_Delete…`, `usp_AddEvidence`, `usp_RemoveEvidence`, `usp_FinalizeExperimentVersion`) must be called standalone, outside any transaction; they raise error 50000 otherwise. The lock primitives and assertion helpers are the exception.
+
 Apply `upgrade/` first, then `programmability/`. Within each folder, files run in filename order, so use a numeric prefix (`010_...sql`, `020_...sql`). Files may contain `GO` batch separators.
 
 Every script must be re-runnable: use `CREATE OR ALTER` for procedures, views, functions and triggers, and guard everything else with `IF NOT EXISTS` / `IF OBJECT_ID(...)` checks. Applying the whole set twice must succeed.
