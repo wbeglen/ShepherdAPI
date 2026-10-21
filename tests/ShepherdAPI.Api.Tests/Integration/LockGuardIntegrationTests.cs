@@ -142,8 +142,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         await connection.ExecuteAsync(sql);
     }
 
-    private Task LockAsync(long version) =>
-        ExecAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {version};");
+    private Task LockAsync(long version) => LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, version);
 
     /// <summary>Runs the SQL, expecting it to be rejected with the given THROW number, and checks the API-level mapping.</summary>
     private async Task RejectedAsync(string sql, int number)
@@ -578,7 +577,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         await Task.Delay(500);
         Assert.False(lateWriter.IsCompleted, "the writer must wait behind the exclusive lock");
 
-        await finalizer.ExecuteAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {c.VersionA};", transaction: finalizerTransaction);
+        await LockedUtcTestHelper.LockAsync(finalizer, c.VersionA, finalizerTransaction);
         finalizerTransaction.Commit();
 
         var rejected = await Assert.ThrowsAsync<SqlException>(() => lateWriter.WaitAsync(TimeSpan.FromSeconds(10)));

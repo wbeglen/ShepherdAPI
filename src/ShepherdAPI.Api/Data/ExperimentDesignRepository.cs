@@ -36,8 +36,8 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return await connection.QuerySingleAsync<long>(
             """
             INSERT INTO dbo.ExperimentVersion (Name, VersionLabel, StatusID, EffectiveDateUTC, Description, LockedUTC)
-            OUTPUT INSERTED.ExperimentVersionID
             VALUES (@name, @versionLabel, @statusId, @effectiveDateUtc, @description, NULL);
+            SELECT CAST(SCOPE_IDENTITY() AS bigint);
             """,
             new { name, versionLabel, statusId, effectiveDateUtc, description });
     }

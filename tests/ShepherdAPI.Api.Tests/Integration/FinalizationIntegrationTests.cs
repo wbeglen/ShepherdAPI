@@ -603,6 +603,63 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
     }
 
     [Fact]
+    public async Task AFailureDuringTheSnapshotInsert_RollsBackEverything_AndClearsTheToken()
+    {
+        var f = await BuildAsync();
+
+        // A test-only trigger makes the snapshot insert itself fail, while the finalization token is set.
+        await ExecAsync("""
+            CREATE OR ALTER TRIGGER dbo.trg_TestFailSnapshot ON dbo.ScoreObservationSnapshot AFTER INSERT AS
+            BEGIN
+                THROW 59998, N'forced failure during the snapshot insert', 1;
+            END
+            """);
+        try
+        {
+            using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
+            var parameters = new DynamicParameters();
+            parameters.Add("@ExperimentVersionID", f.Version);
+            parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+            parameters.Add("@LockedUTC", dbType: DbType.DateTime2, direction: ParameterDirection.Output);
+            var ex = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync("dbo.usp_FinalizeExperimentVersion", parameters, commandType: CommandType.StoredProcedure));
+
+            Assert.Equal(59998, ex.Number);
+            Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT @@TRANCOUNT;"));
+            Assert.Null(await connection.QuerySingleAsync<long?>("SELECT TRY_CONVERT(bigint, SESSION_CONTEXT(N'ShepherdAPI.FinalizingVersionID'));"));
+        }
+        finally
+        {
+            await ExecAsync("DROP TRIGGER IF EXISTS dbo.trg_TestFailSnapshot;");
+        }
+
+        Assert.Equal(0, await SnapshotCountAsync(f.Version));
+        Assert.Null(await LockedUtcAsync(f.Version));
+        await FinalizeAsync(f.Version);
+        Assert.Equal(6, await SnapshotCountAsync(f.Version));
+    }
+
+    [Fact]
+    public async Task TheLockedUtcUpdate_IsAuthorizedByTheTokenInsideFinalization_AndByNothingElse()
+    {
+        var f = await BuildAsync();
+
+        // Nothing but finalization can lock a finalizable version: a raw assignment without the key is refused...
+        using (var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync())
+        {
+            var ex = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync(
+                "UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = @v;", new { v = f.Version }));
+            Assert.Equal(50509, ex.Number);
+        }
+
+        Assert.Null(await LockedUtcAsync(f.Version));
+
+        // ...while finalization itself locks it, with the snapshot, and leaves the key NULL on its connection.
+        var finalized = await FinalizeAsync(f.Version);
+        Assert.Equal(finalized.LockedUTC, await LockedUtcAsync(f.Version));
+        Assert.Equal(6, await SnapshotCountAsync(f.Version));
+    }
+
+    [Fact]
     public async Task TheToken_IsClearedAfterSuccessAndAfterAFailedCheck()
     {
         var failing = await BuildAsync(endExecutions: false);
@@ -707,7 +764,7 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
     {
         var f = await BuildAsync();
         var o = f.Observations[0];
-        await ExecAsync("UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = @v;", new { v = f.Version });
+        await LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, f.Version);
 
         using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
         await connection.ExecuteAsync($"EXEC sys.sp_set_session_context @key = N'ShepherdAPI.FinalizingVersionID', @value = {f.Version};");

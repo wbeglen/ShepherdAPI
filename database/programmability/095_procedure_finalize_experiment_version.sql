@@ -18,8 +18,13 @@
 --      ObservedScore lies within the rule's MinScore..MaxScore inclusive                           -> 50506
 --   6. One snapshot row per ScoreObservation (all raters, no calculation), inserted with the session-context
 --      token set so dbo.trg_ScoreObservationSnapshot_Guard admits them.
---   7. LockedUTC on the version and SnapshotUTC on every row are ONE database-generated UTC timestamp.
+--   7. LockedUTC on the version and SnapshotUTC on every row are ONE database-generated UTC timestamp. The token
+--      stays set through the LockedUTC update, because dbo.trg_ExperimentVersion_Guard admits a NULL-to-value
+--      LockedUTC only while the token names that version (Issue #9); it is cleared right after that update.
 --   8. Commit.
+-- The token is session state, not transactional, so it is cleared on the success path before COMMIT and in the
+-- CATCH block on every failure path (including a doomed transaction). It is an accident guard, not a security
+-- boundary (permissions: Issue #11).
 -- Each failed check raises its own catalog error naming the offending Executions, phases or observations: the
 -- message ends with a machine-readable suffix "[Name=1,2,3;Total=n]" (at most 50 ids) which the API turns into
 -- ProblemDetails members. Re-runnable (CREATE OR ALTER).
@@ -215,9 +220,10 @@ BEGIN
         JOIN dbo.ScoreRule AS r ON r.ScoreRuleID = o.ScoreRuleID
         JOIN dbo.ScoreCategory AS c ON c.ScoreCategoryID = r.ScoreCategoryID;
 
-        EXEC sys.sp_set_session_context @key = N'ShepherdAPI.FinalizingVersionID', @value = NULL;
-
         UPDATE dbo.ExperimentVersion SET LockedUTC = @now WHERE ExperimentVersionID = @ExperimentVersionID;
+
+        -- The token has done its job; clear it before COMMIT (the CATCH block clears it on every failure path).
+        EXEC sys.sp_set_session_context @key = N'ShepherdAPI.FinalizingVersionID', @value = NULL;
 
         -- 8. Commit.
         COMMIT TRANSACTION;

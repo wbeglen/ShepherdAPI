@@ -101,8 +101,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
     private Task<int> ObservationCountAsync(long execution) =>
         ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreObservation WHERE ExecutionID = @execution;", new { execution });
 
-    private Task LockAsync(long version) =>
-        ExecAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {version};");
+    private Task LockAsync(long version) => LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, version);
 
     private static async Task AssertRejectedAsync(Func<Task> write, int sqlNumber, int httpStatus, string code)
     {
@@ -381,8 +380,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         await Task.Delay(500);
         Assert.False(write.IsCompleted, "the write must wait behind the finalization's exclusive lock");
 
-        await finalizer.ExecuteAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {c.Version};",
-            transaction: finalizerTransaction);
+        await LockedUtcTestHelper.LockAsync(finalizer, c.Version, finalizerTransaction);
         finalizerTransaction.Commit();
 
         var rejected = await Assert.ThrowsAsync<SqlException>(() => write.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -405,8 +403,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         await Task.Delay(500);
         Assert.False(write.IsCompleted);
 
-        await finalizer.ExecuteAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {c.Version};",
-            transaction: finalizerTransaction);
+        await LockedUtcTestHelper.LockAsync(finalizer, c.Version, finalizerTransaction);
         finalizerTransaction.Commit();
 
         var rejected = await Assert.ThrowsAsync<SqlException>(() => write.WaitAsync(TimeSpan.FromSeconds(10)));

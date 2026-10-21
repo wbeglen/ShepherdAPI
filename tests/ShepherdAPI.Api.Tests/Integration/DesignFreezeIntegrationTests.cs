@@ -153,8 +153,7 @@ public class DesignFreezeIntegrationTests(DatabaseFixture fixture)
         await connection.ExecuteAsync("dbo.usp_AcquireVersionLock", parameters, transaction, commandType: CommandType.StoredProcedure);
     }
 
-    private Task LockAsync(long version) =>
-        ExecAsync("UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = @version;", new { version });
+    private Task LockAsync(long version) => LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, version);
 
     private async Task<bool> RuleExistsAsync(int rule) =>
         await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreRule WHERE ScoreRuleID = @rule;", new { rule }) == 1;

@@ -68,6 +68,7 @@ public static class ErrorCatalog
     public static readonly ErrorEntry FinalizeObservationIntegrity = new("finalize-observation-integrity", HttpStatusCode.Conflict, "Finalization Failed: Observation Integrity", 50506);
     public static readonly ErrorEntry FinalizeSnapshotRowsExist = new("finalize-snapshot-rows-exist", HttpStatusCode.Conflict, "Finalization Failed: Snapshot Rows Already Exist", 50507);
     public static readonly ErrorEntry SnapshotInsertNotPermitted = new("snapshot-insert-not-permitted", HttpStatusCode.Conflict, "Snapshot Insert Not Permitted", 50508);
+    public static readonly ErrorEntry LockRequiresFinalization = new("lock-requires-finalization", HttpStatusCode.Conflict, "Lock Requires Finalization", 50509);
 
     // -- Concurrency (deadlock victim 1205 and lock-wait timeout 1222 are one retryable error) --
     public const int DeadlockVictim = 1205;
@@ -83,7 +84,7 @@ public static class ErrorCatalog
         DesignFrozen, ExecutionDeleteRejected,
         FinalizeNoExecutions, FinalizeExecutionNotEnded, FinalizeExecutionWithoutObservation,
         FinalizeExecutionPhaseNotConfigured, FinalizePhaseWithoutObservation, FinalizePhaseWeightInvalid,
-        FinalizeObservationIntegrity, FinalizeSnapshotRowsExist, SnapshotInsertNotPermitted,
+        FinalizeObservationIntegrity, FinalizeSnapshotRowsExist, SnapshotInsertNotPermitted, LockRequiresFinalization,
         RetryableConflict,
     ];
 

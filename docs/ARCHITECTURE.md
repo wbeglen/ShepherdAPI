@@ -99,7 +99,7 @@ Informational only. Not an immutability boundary. Recording, correction, and lat
 
 ### 5.3 `ExperimentVersion.LockedUTC` — "the experimental record is final" (hard lock)
 
-`LockedUTC` is a nullable `datetime2(3)` on `ExperimentVersion`. It is set exactly once, by finalization (§5.7), together with the score snapshot, in one transaction.
+`LockedUTC` is a nullable `datetime2(3)` on `ExperimentVersion`. It is set exactly once, by finalization (§5.7), together with the score snapshot, in one transaction. The `ExperimentVersion` guard trigger enforces that: a version is never inserted locked, and `LockedUTC` goes from NULL to a value only while the finalization session-context key names that same version (`lock-requires-finalization` otherwise). This is an accident guard, not a security boundary (§7).
 
 Semantics:
 - `LockedUTC IS NULL`: the version and everything it governs may still be corrected per the rules in this section. This supports the normal workflow where evaluating a later execution, or receiving a delayed rating, legitimately causes correction of earlier evaluation data within the same `ExperimentVersion`.
@@ -161,6 +161,8 @@ Work in progress never blocks a valid observation: an Execution without `EndUTC`
 7. `LockedUTC` and every row's `SnapshotUTC` are set to one database-generated UTC timestamp.
 8. Commit.
 
+**Session-context token.** The procedure sets the key `ShepherdAPI.FinalizingVersionID` to the version's id before the snapshot inserts and keeps it set through the `LockedUTC` update, because both guard triggers (snapshot and `ExperimentVersion`) admit their writes only while it names that version. It clears the key right after the `LockedUTC` update, before `COMMIT`, and again in the `CATCH` block on every failure path, including a doomed transaction. The key is session state rather than transactional state, so the explicit clears matter; a pooled connection is also reset between uses.
+
 Each failed check has its own error code, and its 409 body names the offending Executions, phases or observations (`executionIDs`, `phaseIDs`, `scoreObservationIDs`, `total`). The request's optional `StatusID` is ignored (§5.3).
 
 **Snapshot table.** The six-column primary key (`ExperimentVersionID`, `ExecutionID`, `PhaseID`, `ScoreCategoryID`, `ScoreRuleID`, `ScoreObservationID`) is preserved. Rows are created only by finalization: the procedure sets the session-context key `ShepherdAPI.FinalizingVersionID` to the version's id around its inserts, and the insert trigger requires it (`snapshot-insert-not-permitted` otherwise). Inserts for a locked version are rejected, and updates and deletes are always rejected (`version-locked`). `CHECK` constraints (`MinScore < MaxScore`, `WeightPercent` 0–100, `ObservedScore` between `MinScore` and `MaxScore`) are added by the `database/upgrade/` script. The token prevents out-of-procedure writes by accident; it is not strong protection (§7).
@@ -215,7 +217,7 @@ All errors are RFC 7807 `ProblemDetails` with a stable machine-readable `code` e
 | 50200–50299 | Execution guard | `invalid-rule-configuration` (50200) |
 | 50300–50399 | observation validation | `version-phase-mismatch` (50300), `out-of-range-score` (50302, HTTP 400); 50301 is retired (§5.5) |
 | 50400–50499 | design freeze | `design-frozen` (50400), `execution-delete-rejected` (50403); 50401 and 50402 are retired (§5.5) |
-| 50500–50599 | finalization | `finalize-no-executions` … `finalize-snapshot-rows-exist` (50500–50507), `snapshot-insert-not-permitted` (50508) |
+| 50500–50599 | finalization | `finalize-no-executions` … `finalize-snapshot-rows-exist` (50500–50507), `snapshot-insert-not-permitted` (50508), `lock-requires-finalization` (50509) |
 
 Application errors keep their existing codes (`not-found`, `record-locked`, `conflict`, `validation-failed`, `duplicate-key`, `constraint-violation`, `internal-error`); the duplicate observation constraint is recognized as `duplicate-observation`. Deadlock victims and lock-wait timeouts become the single retryable `retryable-conflict`. An unregistered `THROW` number is a 500 `internal-error`. Some errors carry extra members (for example the offending ids of a failed finalization check, or the phase's rules for `invalid-rule-configuration`). The catalog, the numbering and the OpenAPI `ProblemDetails` responses are the contract ShepherdWeb builds against; how ShepherdWeb presents them is its own concern.
 
@@ -227,7 +229,7 @@ Integration tests run against a disposable database (`ShepherdAPI_IntegrationTes
 
 The following were discussed during this review and deliberately not decided now, to avoid solving problems Alpha doesn't have:
 
-- **Database permissions.** The API and tests connect with a high-privilege principal, so `DENY`-based protection is ineffective today and the guards are integrity rules, not security. The snapshot session-context token (§5.7) prevents accidents only; strong protection of snapshot writes, and of the controlled-write procedures against direct table access, depends on this work.
+- **Database permissions.** The API and tests connect with a high-privilege principal, so `DENY`-based protection is ineffective today and the guards are integrity rules, not security. The finalization session-context token (§5.7), which guards both snapshot inserts and the assignment of `LockedUTC`, prevents accidents only; strong protection of those writes, and of the controlled-write procedures against direct table access, depends on this work (a non-sysadmin API principal, a decision on which tables keep direct DML, and a column-level `DENY UPDATE (LockedUTC)`). It is tracked as GitHub Issue #11.
 - A fixed, enforced `Status` vocabulary or per-entity scoping of valid status values.
 - After-the-fact audit/tamper detection for writes that bypass ShepherdAPI.
 - Row-level `CreatedUTC`/`ModifiedUTC` audit columns.
@@ -248,5 +250,6 @@ The lifecycle rules above were implemented, in dependency order, as GitHub Issue
 | #4 | ExperimentVersion design freeze; ScoreRule soft-delete (replaced by #7); Execution deletes rejected | §5.4, §5.5, §5.1 |
 | #2 | Finalization and the score snapshot | §5.7 |
 | #7 | `ScoreRule.RowState` removed; ScoreRule update and physical delete in the Design state only | §5.5 |
+| #9 | `LockedUTC` assignable only by finalization (token guard on the `ExperimentVersion` trigger) | §5.3, §5.7 |
 
 A decision to change any rule above should start from the corresponding issue.

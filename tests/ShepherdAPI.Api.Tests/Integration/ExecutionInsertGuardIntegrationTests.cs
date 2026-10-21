@@ -213,7 +213,7 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
     public async Task LockedVersion_RejectsInsertion_EvenWithAValidConfiguration_AndCreatesNothing()
     {
         var (version, iteration, _) = await SetupAsync(new Rule(fixture.PhaseId, 100m));
-        await ExecAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {version};");
+        await LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, version);
 
         var ex = await Assert.ThrowsAsync<SqlException>(() => Recording().CreateExecutionAsync(Request(iteration, fixture.PhaseId)));
 
@@ -228,7 +228,7 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
     public async Task LockedVersionWithAnInvalidConfiguration_ReportsTheLockFirst()
     {
         var (version, iteration, _) = await SetupAsync(); // no rules at all
-        await ExecAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {version};");
+        await LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, version);
 
         var ex = await Assert.ThrowsAsync<SqlException>(() => Recording().CreateExecutionAsync(Request(iteration, fixture.PhaseId)));
 
@@ -357,8 +357,7 @@ public class ExecutionInsertGuardIntegrationTests(DatabaseFixture fixture)
         await Task.Delay(500);
         Assert.False(creation.IsCompleted, "creation must wait behind the finalization's exclusive lock");
 
-        await finalizer.ExecuteAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {version};",
-            transaction: finalizerTransaction);
+        await LockedUtcTestHelper.LockAsync(finalizer, version, finalizerTransaction);
         finalizerTransaction.Commit();
 
         var rejected = await Assert.ThrowsAsync<SqlException>(() => creation.WaitAsync(TimeSpan.FromSeconds(10)));
