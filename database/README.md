@@ -35,6 +35,32 @@ The inventory (section 1) and the connection list (section 7) are informational.
 
 An open Execution (section 5) can still be ended after deployment, but it blocks finalization until it is. Once the scripts are applied, a version that has Executions has a frozen design. Make any rule, parameter or iteration changes before you deploy.
 
+## Post-deployment audit (V10)
+
+After applying `upgrade/` and `programmability/`, run `maintenance/post-deploy-audit-v10.sql` against the same database. Here V10 means the v9 baseline plus every script in those two folders. The audit only reads. It verifies the following:
+
+- **Deployment.** Every expected view, function, table type, trigger, procedure and constraint exists. Each trigger is enabled, `AFTER INSERT, UPDATE, DELETE`, and on the right table. Every CHECK and FOREIGN KEY in `dbo` is enabled and trusted. Every module was created with `QUOTED_IDENTIFIER` and `ANSI_NULLS` on. The deployed code is the current version: the Issue #10 standalone guard is present, the Issue #8 and #9 fingerprints match, nothing still refers to `RowState`, and `usp_SoftDeleteScoreRule` is gone.
+- **Data intact.** The row counts match the pre-deployment audit, and the known open Execution 9 is still present. The integrity checks from the pre-deployment audit still pass.
+- **Finalization readiness.** Unlocked versions that have Executions are checked against `usp_FinalizeExperimentVersion`'s rules: 50501 through 50505.
+
+```bash
+sqlcmd -S localhost -E -d Experiments -b -I -W -i database/maintenance/post-deploy-audit-v10.sql
+```
+
+In SSMS, open the file and run the whole script. It switches to `Experiments` itself.
+
+The audit returns three result sets: an inventory per version, the findings, and a one-row verdict. Each finding has a severity:
+
+| Severity | Meaning | Action |
+|---|---|---|
+| `FAIL` | Deployment failure: something is missing, disabled or out of date, or the data no longer matches the pre-deployment audit | Fix before using the API. The script ends with error 16, so `sqlcmd -b` exits non-zero. |
+| `WARN` | Finalization-readiness warning: the deployment is fine, but finalization would refuse the version. Detail names the error code. | Complete the data before finalizing. |
+| `INFO` | For information only, such as a `dbo` module the V10 scripts don't create | None |
+
+Right after deployment, the expected result is `DEPLOYMENT VERIFIED` with one `WARN`: Execution 9 is still open. End it through `usp_UpdateExecutionRunFacts` before finalizing version 1.
+
+The expected row counts and the known open Execution are declared at the top of the script. They come from the pre-deployment audit of 2026-10-23. Update them if the data has since been changed on purpose.
+
 ## Applying to a restored backup
 
 Restore the backup, then run the audit above. Then run only the `upgrade/` and `programmability/` scripts against it (not the baseline). With Windows authentication against the local default instance:
