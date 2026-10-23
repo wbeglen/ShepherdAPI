@@ -1,6 +1,6 @@
 USE [master]
 GO
-/****** Object:  Database [Experiments]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Database [Experiments]    Script Date: 10/23/2026 1:23:14 PM ******/
 CREATE DATABASE [Experiments]
  CONTAINMENT = NONE
  ON  PRIMARY 
@@ -86,7 +86,7 @@ ALTER DATABASE [Experiments] SET QUERY_STORE (OPERATION_MODE = READ_WRITE, CLEAN
 GO
 USE [Experiments]
 GO
-/****** Object:  UserDefinedTableType [dbo].[VersionIdList]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  UserDefinedTableType [dbo].[VersionIdList]    Script Date: 10/23/2026 1:23:15 PM ******/
 CREATE TYPE [dbo].[VersionIdList] AS TABLE(
 	[ExperimentVersionID] [bigint] NOT NULL,
 	PRIMARY KEY CLUSTERED 
@@ -95,7 +95,7 @@ CREATE TYPE [dbo].[VersionIdList] AS TABLE(
 )WITH (IGNORE_DUP_KEY = OFF)
 )
 GO
-/****** Object:  UserDefinedFunction [dbo].[fn_VersionHasExecutions]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  UserDefinedFunction [dbo].[fn_VersionHasExecutions]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -115,7 +115,7 @@ BEGIN
 END
 
 GO
-/****** Object:  Table [dbo].[Iteration]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[Iteration]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -139,7 +139,7 @@ CREATE TABLE [dbo].[Iteration](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vOwnerIteration]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  View [dbo].[vOwnerIteration]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -151,7 +151,7 @@ SELECT i.IterationID, i.ExperimentVersionID
 FROM dbo.Iteration AS i;
 
 GO
-/****** Object:  Table [dbo].[Parameter]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[Parameter]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -174,7 +174,7 @@ CREATE TABLE [dbo].[Parameter](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vOwnerParameter]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  View [dbo].[vOwnerParameter]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -185,7 +185,7 @@ SELECT p.ParameterID, p.ExperimentVersionID
 FROM dbo.Parameter AS p;
 
 GO
-/****** Object:  Table [dbo].[ScoreRule]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[ScoreRule]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -212,7 +212,7 @@ CREATE TABLE [dbo].[ScoreRule](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vOwnerScoreRule]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  View [dbo].[vOwnerScoreRule]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -223,7 +223,7 @@ SELECT r.ScoreRuleID, r.ExperimentVersionID
 FROM dbo.ScoreRule AS r;
 
 GO
-/****** Object:  Table [dbo].[ScoreObservationSnapshot]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[ScoreObservationSnapshot]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -252,7 +252,7 @@ CREATE TABLE [dbo].[ScoreObservationSnapshot](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vOwnerScoreObservationSnapshot]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  View [dbo].[vOwnerScoreObservationSnapshot]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -263,7 +263,7 @@ SELECT s.ExperimentVersionID, s.ExecutionID, s.PhaseID, s.ScoreCategoryID, s.Sco
 FROM dbo.ScoreObservationSnapshot AS s;
 
 GO
-/****** Object:  Table [dbo].[Execution]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[Execution]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -288,7 +288,7 @@ CREATE TABLE [dbo].[Execution](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vOwnerExecution]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  View [dbo].[vOwnerExecution]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -301,7 +301,7 @@ FROM dbo.Execution AS e
 JOIN dbo.Iteration AS i ON i.IterationID = e.IterationID;
 
 GO
-/****** Object:  Table [dbo].[Artifact]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[Artifact]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -324,7 +324,7 @@ CREATE TABLE [dbo].[Artifact](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vOwnerArtifact]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  View [dbo].[vOwnerArtifact]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -336,7 +336,7 @@ FROM dbo.Artifact AS a
 JOIN dbo.vOwnerExecution AS o ON o.ExecutionID = a.ExecutionID;
 
 GO
-/****** Object:  Table [dbo].[ScoreObservation]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[ScoreObservation]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -362,7 +362,7 @@ CREATE TABLE [dbo].[ScoreObservation](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vOwnerScoreObservation]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  View [dbo].[vOwnerScoreObservation]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -374,7 +374,7 @@ FROM dbo.ScoreObservation AS so
 JOIN dbo.vOwnerExecution AS o ON o.ExecutionID = so.ExecutionID;
 
 GO
-/****** Object:  Table [dbo].[ScoreObservationEvidence]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[ScoreObservationEvidence]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -390,7 +390,7 @@ CREATE TABLE [dbo].[ScoreObservationEvidence](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  View [dbo].[vOwnerScoreObservationEvidence]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  View [dbo].[vOwnerScoreObservationEvidence]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -407,7 +407,7 @@ JOIN dbo.vOwnerScoreObservation AS obs ON obs.ScoreObservationID = soe.ScoreObse
 JOIN dbo.vOwnerArtifact AS art ON art.ArtifactID = soe.ArtifactID;
 
 GO
-/****** Object:  Table [dbo].[Agent]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[Agent]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -429,7 +429,7 @@ CREATE TABLE [dbo].[Agent](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ArtifactType]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[ArtifactType]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -448,7 +448,7 @@ CREATE TABLE [dbo].[ArtifactType](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ETLSourceAudit]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[ETLSourceAudit]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -469,7 +469,7 @@ CREATE TABLE [dbo].[ETLSourceAudit](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ExperimentVersion]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[ExperimentVersion]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -493,7 +493,7 @@ CREATE TABLE [dbo].[ExperimentVersion](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Phase]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[Phase]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -517,7 +517,7 @@ CREATE TABLE [dbo].[Phase](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Rater]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[Rater]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -537,7 +537,7 @@ CREATE TABLE [dbo].[Rater](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ScoreCategory]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[ScoreCategory]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -557,7 +557,7 @@ CREATE TABLE [dbo].[ScoreCategory](
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Status]    Script Date: 10/23/2026 12:49:17 PM ******/
+/****** Object:  Table [dbo].[Status]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -744,7 +744,7 @@ ALTER TABLE [dbo].[ScoreRule]  WITH CHECK ADD  CONSTRAINT [scorerule_weightperce
 GO
 ALTER TABLE [dbo].[ScoreRule] CHECK CONSTRAINT [scorerule_weightpercent_between_0_100]
 GO
-/****** Object:  StoredProcedure [dbo].[usp_AcquireVersionLock]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_AcquireVersionLock]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -780,7 +780,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_AddEvidence]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_AddEvidence]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -840,7 +840,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_AssertDesignNotFrozen]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_AssertDesignNotFrozen]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -871,7 +871,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_AssertDesignWritable]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_AssertDesignWritable]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -897,7 +897,7 @@ BEGIN
     EXEC dbo.usp_AssertDesignNotFrozen @versions;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_AssertVersionsUnlocked]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_AssertVersionsUnlocked]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -930,7 +930,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_CreateArtifact]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_CreateArtifact]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -997,7 +997,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_CreateExecution]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_CreateExecution]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1083,7 +1083,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_CreateIteration]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_CreateIteration]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1130,7 +1130,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_CreateParameter]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_CreateParameter]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1176,7 +1176,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_CreateScoreObservation]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_CreateScoreObservation]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1270,7 +1270,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_CreateScoreRule]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_CreateScoreRule]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1317,7 +1317,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_DeleteIteration]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_DeleteIteration]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1363,7 +1363,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_DeleteParameter]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_DeleteParameter]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1409,7 +1409,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_DeleteScoreRule]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_DeleteScoreRule]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1458,7 +1458,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_FinalizeExperimentVersion]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_FinalizeExperimentVersion]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1681,7 +1681,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_LockVersions]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_LockVersions]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1716,7 +1716,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_RemoveEvidence]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_RemoveEvidence]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1773,7 +1773,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_UpdateExecutionRunFacts]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_UpdateExecutionRunFacts]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1847,7 +1847,7 @@ BEGIN
 END
 
 GO
-/****** Object:  StoredProcedure [dbo].[usp_UpdateExperimentVersion]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_UpdateExperimentVersion]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1890,7 +1890,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_UpdateIteration]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_UpdateIteration]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1945,7 +1945,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_UpdateParameter]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_UpdateParameter]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -1997,7 +1997,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_UpdateScoreObservationContent]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_UpdateScoreObservationContent]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -2070,7 +2070,7 @@ BEGIN
     COMMIT TRANSACTION;
 END
 GO
-/****** Object:  StoredProcedure [dbo].[usp_UpdateScoreRule]    Script Date: 10/23/2026 12:49:18 PM ******/
+/****** Object:  StoredProcedure [dbo].[usp_UpdateScoreRule]    Script Date: 10/23/2026 1:23:15 PM ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -2126,6 +2126,368 @@ BEGIN
 
     COMMIT TRANSACTION;
 END
+GO
+/****** Object:  Trigger [dbo].[trg_Artifact_Guard]    Script Date: 10/23/2026 1:23:15 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- Artifact rows are insert-only: every column is an identity column.
+CREATE   TRIGGER [dbo].[trg_Artifact_Guard]
+ON [dbo].[Artifact]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
+       AND EXISTS (SELECT ArtifactID, ExecutionID, ArtifactTypeID, OriginalName, OriginalURI, StoredURI,
+                          MimeType, ByteLength, SHA256, ReceivedUTC, StoredUTC FROM inserted
+                   EXCEPT
+                   SELECT ArtifactID, ExecutionID, ArtifactTypeID, OriginalName, OriginalURI, StoredURI,
+                          MimeType, ByteLength, SHA256, ReceivedUTC, StoredUTC FROM deleted)
+        THROW 50101, N'Artifact rows are insert-only; no column can be changed.', 1;
+
+    DECLARE @Owners dbo.VersionIdList;
+    INSERT INTO @Owners (ExperimentVersionID)
+        SELECT o.ExperimentVersionID FROM inserted AS x JOIN dbo.vOwnerExecution AS o ON o.ExecutionID = x.ExecutionID
+        UNION
+        SELECT o.ExperimentVersionID FROM deleted AS x JOIN dbo.vOwnerExecution AS o ON o.ExecutionID = x.ExecutionID;
+
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+END
+GO
+ALTER TABLE [dbo].[Artifact] ENABLE TRIGGER [trg_Artifact_Guard]
+GO
+/****** Object:  Trigger [dbo].[trg_Execution_Guard]    Script Date: 10/23/2026 1:23:16 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE   TRIGGER [dbo].[trg_Execution_Guard]
+ON [dbo].[Execution]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    -- Issue #4: an Execution can never be deleted, whatever its version's state. The first Execution
+    -- permanently freezes the version's design, and deleting it must not be a way to reverse that.
+    IF NOT EXISTS (SELECT 1 FROM inserted)
+        THROW 50403, N'An Execution cannot be deleted; its existence permanently freezes the ExperimentVersion design.', 1;
+
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
+       AND EXISTS (SELECT ExecutionID, IterationID, AgentID, PhaseID, AttemptNumber, StartUTC FROM inserted
+                   EXCEPT
+                   SELECT ExecutionID, IterationID, AgentID, PhaseID, AttemptNumber, StartUTC FROM deleted)
+        THROW 50101, N'Execution.IterationID, AgentID, PhaseID, AttemptNumber and StartUTC cannot be changed.', 1;
+
+    DECLARE @Owners dbo.VersionIdList;
+    INSERT INTO @Owners (ExperimentVersionID)
+        SELECT o.ExperimentVersionID FROM inserted AS x JOIN dbo.vOwnerIteration AS o ON o.IterationID = x.IterationID
+        UNION
+        SELECT o.ExperimentVersionID FROM deleted AS x JOIN dbo.vOwnerIteration AS o ON o.IterationID = x.IterationID;
+
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+END
+GO
+ALTER TABLE [dbo].[Execution] ENABLE TRIGGER [trg_Execution_Guard]
+GO
+/****** Object:  Trigger [dbo].[trg_ExperimentVersion_Guard]    Script Date: 10/23/2026 1:23:16 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE   TRIGGER [dbo].[trg_ExperimentVersion_Guard]
+ON [dbo].[ExperimentVersion]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    -- INSERT: a version is created unlocked. This branch must run before the "no old rows" early exit below.
+    IF NOT EXISTS (SELECT 1 FROM deleted)
+    BEGIN
+        IF EXISTS (SELECT 1 FROM inserted WHERE LockedUTC IS NOT NULL)
+            THROW 50509, N'An ExperimentVersion cannot be created locked; LockedUTC is set only by finalization (dbo.usp_FinalizeExperimentVersion).', 1;
+        RETURN;
+    END
+
+    -- DELETE
+    IF NOT EXISTS (SELECT 1 FROM inserted)
+    BEGIN
+        IF EXISTS (SELECT 1 FROM deleted WHERE LockedUTC IS NOT NULL)
+            THROW 50100, N'A locked ExperimentVersion cannot be deleted.', 1;
+        RETURN;
+    END
+
+    -- UPDATE
+    IF EXISTS
+    (
+        SELECT 1
+        FROM inserted AS i
+        JOIN deleted AS d ON d.ExperimentVersionID = i.ExperimentVersionID
+        WHERE d.LockedUTC IS NOT NULL
+          AND (   i.LockedUTC IS NULL
+               OR i.LockedUTC <> d.LockedUTC
+               OR i.Name <> d.Name
+               OR i.VersionLabel <> d.VersionLabel
+               OR i.EffectiveDateUTC <> d.EffectiveDateUTC
+               OR i.Description <> d.Description)
+    )
+        THROW 50100, N'A locked ExperimentVersion cannot be changed; only StatusID may change after lock, and LockedUTC can never be cleared or changed.', 1;
+
+    DECLARE @token bigint = TRY_CONVERT(bigint, SESSION_CONTEXT(N'ShepherdAPI.FinalizingVersionID'));
+
+    IF EXISTS
+    (
+        SELECT 1
+        FROM inserted AS i
+        JOIN deleted AS d ON d.ExperimentVersionID = i.ExperimentVersionID
+        WHERE d.LockedUTC IS NULL
+          AND i.LockedUTC IS NOT NULL
+          AND (@token IS NULL OR i.ExperimentVersionID <> @token)
+    )
+        THROW 50509, N'ExperimentVersion.LockedUTC can only be set by finalization (dbo.usp_FinalizeExperimentVersion).', 1;
+
+    IF EXISTS
+    (
+        SELECT 1
+        FROM inserted AS i
+        JOIN deleted AS d ON d.ExperimentVersionID = i.ExperimentVersionID
+        WHERE (   i.Name <> d.Name
+               OR i.VersionLabel <> d.VersionLabel
+               OR i.EffectiveDateUTC <> d.EffectiveDateUTC
+               OR i.Description <> d.Description)
+          AND dbo.fn_VersionHasExecutions(i.ExperimentVersionID) = 1
+    )
+        THROW 50400, N'The design of this ExperimentVersion is frozen because it has Executions; Name, VersionLabel, EffectiveDateUTC and Description can no longer change.', 1;
+END
+
+GO
+ALTER TABLE [dbo].[ExperimentVersion] ENABLE TRIGGER [trg_ExperimentVersion_Guard]
+GO
+/****** Object:  Trigger [dbo].[trg_Iteration_Guard]    Script Date: 10/23/2026 1:23:16 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE   TRIGGER [dbo].[trg_Iteration_Guard]
+ON [dbo].[Iteration]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
+       AND EXISTS (SELECT IterationID, ExperimentVersionID FROM inserted
+                   EXCEPT
+                   SELECT IterationID, ExperimentVersionID FROM deleted)
+        THROW 50101, N'Iteration.ExperimentVersionID cannot be changed.', 1;
+
+    DECLARE @Owners dbo.VersionIdList;
+    INSERT INTO @Owners (ExperimentVersionID)
+        SELECT ExperimentVersionID FROM inserted
+        UNION
+        SELECT ExperimentVersionID FROM deleted;
+
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+    EXEC dbo.usp_AssertDesignNotFrozen @Owners;
+END
+
+GO
+ALTER TABLE [dbo].[Iteration] ENABLE TRIGGER [trg_Iteration_Guard]
+GO
+/****** Object:  Trigger [dbo].[trg_Parameter_Guard]    Script Date: 10/23/2026 1:23:16 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE   TRIGGER [dbo].[trg_Parameter_Guard]
+ON [dbo].[Parameter]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
+       AND EXISTS (SELECT ParameterID, ExperimentVersionID FROM inserted
+                   EXCEPT
+                   SELECT ParameterID, ExperimentVersionID FROM deleted)
+        THROW 50101, N'Parameter.ExperimentVersionID cannot be changed.', 1;
+
+    DECLARE @Owners dbo.VersionIdList;
+    INSERT INTO @Owners (ExperimentVersionID)
+        SELECT ExperimentVersionID FROM inserted
+        UNION
+        SELECT ExperimentVersionID FROM deleted;
+
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+    EXEC dbo.usp_AssertDesignNotFrozen @Owners;
+END
+
+GO
+ALTER TABLE [dbo].[Parameter] ENABLE TRIGGER [trg_Parameter_Guard]
+GO
+/****** Object:  Trigger [dbo].[trg_ScoreObservation_Guard]    Script Date: 10/23/2026 1:23:16 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE   TRIGGER [dbo].[trg_ScoreObservation_Guard]
+ON [dbo].[ScoreObservation]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
+       AND EXISTS (SELECT ScoreObservationID, ExecutionID, ScoreRuleID, RaterID FROM inserted
+                   EXCEPT
+                   SELECT ScoreObservationID, ExecutionID, ScoreRuleID, RaterID FROM deleted)
+        THROW 50101, N'ScoreObservation.ExecutionID, ScoreRuleID and RaterID cannot be changed.', 1;
+
+    DECLARE @Owners dbo.VersionIdList;
+    INSERT INTO @Owners (ExperimentVersionID)
+        SELECT o.ExperimentVersionID FROM inserted AS x JOIN dbo.vOwnerExecution AS o ON o.ExecutionID = x.ExecutionID
+        UNION
+        SELECT o.ExperimentVersionID FROM deleted AS x JOIN dbo.vOwnerExecution AS o ON o.ExecutionID = x.ExecutionID;
+
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+END
+GO
+ALTER TABLE [dbo].[ScoreObservation] ENABLE TRIGGER [trg_ScoreObservation_Guard]
+GO
+/****** Object:  Trigger [dbo].[trg_ScoreObservationEvidence_Guard]    Script Date: 10/23/2026 1:23:16 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+-- An evidence link has two owners (its observation's version and its artifact's version); both are guarded.
+CREATE   TRIGGER [dbo].[trg_ScoreObservationEvidence_Guard]
+ON [dbo].[ScoreObservationEvidence]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
+       AND EXISTS (SELECT ScoreObservationID, ArtifactID FROM inserted
+                   EXCEPT
+                   SELECT ScoreObservationID, ArtifactID FROM deleted)
+        THROW 50101, N'ScoreObservationEvidence.ScoreObservationID and ArtifactID cannot be changed.', 1;
+
+    DECLARE @Owners dbo.VersionIdList;
+    INSERT INTO @Owners (ExperimentVersionID)
+        SELECT o.ExperimentVersionID FROM inserted AS x JOIN dbo.vOwnerScoreObservation AS o ON o.ScoreObservationID = x.ScoreObservationID
+        UNION
+        SELECT o.ExperimentVersionID FROM inserted AS x JOIN dbo.vOwnerArtifact AS o ON o.ArtifactID = x.ArtifactID
+        UNION
+        SELECT o.ExperimentVersionID FROM deleted AS x JOIN dbo.vOwnerScoreObservation AS o ON o.ScoreObservationID = x.ScoreObservationID
+        UNION
+        SELECT o.ExperimentVersionID FROM deleted AS x JOIN dbo.vOwnerArtifact AS o ON o.ArtifactID = x.ArtifactID;
+
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+END
+GO
+ALTER TABLE [dbo].[ScoreObservationEvidence] ENABLE TRIGGER [trg_ScoreObservationEvidence_Guard]
+GO
+/****** Object:  Trigger [dbo].[trg_ScoreObservationSnapshot_Guard]    Script Date: 10/23/2026 1:23:16 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE   TRIGGER [dbo].[trg_ScoreObservationSnapshot_Guard]
+ON [dbo].[ScoreObservationSnapshot]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    IF EXISTS (SELECT 1 FROM deleted)
+        THROW 50100, N'ScoreObservationSnapshot rows are immutable: they cannot be updated or deleted.', 1;
+
+    DECLARE @token bigint = TRY_CONVERT(bigint, SESSION_CONTEXT(N'ShepherdAPI.FinalizingVersionID'));
+
+    IF @token IS NULL OR EXISTS (SELECT 1 FROM inserted WHERE ExperimentVersionID <> @token)
+        THROW 50508, N'ScoreObservationSnapshot rows can only be created by ExperimentVersion finalization (dbo.usp_FinalizeExperimentVersion).', 1;
+
+    DECLARE @Owners dbo.VersionIdList;
+    INSERT INTO @Owners (ExperimentVersionID)
+        SELECT DISTINCT ExperimentVersionID FROM inserted;
+
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+END
+
+GO
+ALTER TABLE [dbo].[ScoreObservationSnapshot] ENABLE TRIGGER [trg_ScoreObservationSnapshot_Guard]
+GO
+/****** Object:  Trigger [dbo].[trg_ScoreRule_Guard]    Script Date: 10/23/2026 1:23:17 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE   TRIGGER [dbo].[trg_ScoreRule_Guard]
+ON [dbo].[ScoreRule]
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
+
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
+       AND EXISTS (SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID FROM inserted
+                   EXCEPT
+                   SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID FROM deleted)
+        THROW 50101, N'ScoreRule.ExperimentVersionID, PhaseID and ScoreCategoryID cannot be changed.', 1;
+
+    DECLARE @Owners dbo.VersionIdList;
+    INSERT INTO @Owners (ExperimentVersionID)
+        SELECT ExperimentVersionID FROM inserted
+        UNION
+        SELECT ExperimentVersionID FROM deleted;
+
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+    EXEC dbo.usp_AssertDesignNotFrozen @Owners;
+END
+
+GO
+ALTER TABLE [dbo].[ScoreRule] ENABLE TRIGGER [trg_ScoreRule_Guard]
 GO
 USE [master]
 GO
