@@ -2,8 +2,8 @@
 
 ## Layout and order
 
-1. `Create_Experiments_Database_And_Tables-N.sql` — the baseline: a full snapshot that creates the `Experiments` database and all tables. The highest `N` is current (v9 today). It is for creating a database from scratch, never for applying to an existing one.
-2. `upgrade/` — schema changes made after the current baseline (for example the `ScoreObservationSnapshot` CHECK constraints, which v9 does not yet include).
+1. The baseline: a full snapshot that creates the `Experiments` database, all tables, constraints, triggers, procedures, views and functions. The current baseline is `Create_Experiments_Database_Version_10.sql` (V10). It equals the v9 baseline plus every script in `upgrade/` and `programmability/` as of Issue #10. The earlier snapshots, `Create_Experiments_Database_And_Tables-6.sql` through `-9.sql`, are kept for history. A baseline is for creating a database from scratch, never for applying to an existing one.
+2. `upgrade/` — schema changes made after a baseline. V10 already includes `001` (the `ScoreObservationSnapshot` CHECK constraints). The script stays because it brings a v9 database up to V10, and it changes nothing on a V10 database.
 3. `programmability/` — stored procedures, views, functions and triggers.
 4. `maintenance/` — read-only operational scripts, such as the pre-deployment audit. They are never part of a deployment.
 
@@ -37,7 +37,7 @@ An open Execution (section 5) can still be ended after deployment, but it blocks
 
 ## Post-deployment audit (V10)
 
-After applying `upgrade/` and `programmability/`, run `maintenance/post-deploy-audit-v10.sql` against the same database. Here V10 means the v9 baseline plus every script in those two folders. The audit only reads. It verifies the following:
+After applying `upgrade/` and `programmability/`, run `maintenance/post-deploy-audit-v10.sql` against the same database. Here V10 means the v9 baseline plus every script in those two folders, which is the schema `Create_Experiments_Database_Version_10.sql` creates. The audit only reads. It verifies the following:
 
 - **Deployment.** Every expected view, function, table type, trigger, procedure and constraint exists. Each trigger is enabled, `AFTER INSERT, UPDATE, DELETE`, and on the right table. Every CHECK and FOREIGN KEY in `dbo` is enabled and trusted. Every module was created with `QUOTED_IDENTIFIER` and `ANSI_NULLS` on. The deployed code is the current version: the Issue #10 standalone guard is present, the Issue #8 and #9 fingerprints match, nothing still refers to `RowState`, and `usp_SoftDeleteScoreRule` is gone.
 - **Data intact.** The row counts match the pre-deployment audit, and the known open Execution 9 is still present. The integrity checks from the pre-deployment audit still pass.
@@ -75,4 +75,4 @@ done
 
 ## Tests
 
-`DatabaseFixture` builds a throwaway database (`ShepherdAPI_IntegrationTest`) from the current baseline, applies `upgrade/` then `programmability/`, and drops it afterward. It never touches the real `Experiments` database.
+`DatabaseFixture` builds a throwaway database (`ShepherdAPI_IntegrationTest`) from the current baseline (`RepoPaths.BaselineDdlFileName`, now V10), applies `upgrade/` then `programmability/`, and drops it afterward. It never touches the real `Experiments` database. The baseline already contains those scripts, so applying them again also proves they are re-runnable. A script added after V10 is applied on top, the same way it would be in a deployment.
