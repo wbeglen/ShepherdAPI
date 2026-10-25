@@ -1,6 +1,6 @@
--- Pre-deployment audit (Blocker #6): read-only checks of the data assumptions behind Issues #7-#10.
--- Run against the Experiments database immediately before applying upgrade/ and programmability/.
--- Every statement is a SELECT: no DML, no DDL, no transaction.
+-- Pre-deployment audit (Blocker #6): read-only checks of the data assumptions behind Issues #7-#10, and (section 8)
+-- behind the V10 -> V11 upgrade scripts. Run against the Experiments database immediately before applying upgrade/ and
+-- programmability/. Every statement is a SELECT: no DML, no DDL, no transaction.
 --
 -- Reading the results: section 1 (inventory) and section 7 (sessions) are informational. Every other result set
 -- should be empty; any row is a problem to resolve before deploying. The finalization checks mirror
@@ -91,3 +91,16 @@ SELECT session_id, login_name, host_name, program_name, status, open_transaction
 FROM sys.dm_exec_sessions
 WHERE database_id = DB_ID() AND is_user_process = 1 AND session_id <> @@SPID
 ORDER BY session_id;
+
+-- 8. V11 readiness. upgrade/003 recreates [artifact-bytelength-greater-equal-zero] as CHECK ([ByteLength] >= 0),
+--    WITH CHECK, so an Artifact with a negative length would make it fail (the V10 constraint never rejected one).
+SELECT ArtifactID, ExecutionID, ByteLength, 'negative ByteLength; upgrade/003 would fail' AS problem
+FROM dbo.Artifact
+WHERE ByteLength < 0;
+
+-- 8b. Where V11 is already applied, FinalizationException rows may exist only for locked versions (re-running the
+--     scripts is harmless; this catches a row written behind the guard's back). Empty on a V10 database.
+IF OBJECT_ID(N'dbo.FinalizationException', N'U') IS NOT NULL
+    EXEC (N'SELECT fe.ExperimentVersionID, fe.ExecutionID, ''exception row on an unlocked version'' AS problem
+            FROM dbo.FinalizationException AS fe JOIN dbo.ExperimentVersion AS ev ON ev.ExperimentVersionID = fe.ExperimentVersionID
+            WHERE ev.LockedUTC IS NULL;');
