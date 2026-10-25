@@ -5,11 +5,13 @@
 --   1. Acquire the EXCLUSIVE parent-version lock (Issue #6). It waits for in-flight controlled writers and
 --      blocks new ones until commit.
 --   2. The version must exist (@Found = 0 otherwise; the API maps that to 404) and be unlocked      -> 50100
---   3. No ScoreObservationSnapshot rows may already exist for the version                          -> 50507
+--   3. No ScoreObservationSnapshot or FinalizationException rows may already exist for the version -> 50507
 --   4. Completeness. The configured phases are the distinct PhaseIDs of the version's ScoreRules
 --      (ScoreRule.Active is deliberately ignored everywhere):
 --        the version has Executions                                                                -> 50500
---        every Execution has EndUTC                                                                -> 50501
+--        (V11) every acknowledged unknown end (@UnknownEnds) names an Execution of this version
+--        that has no EndUTC, with a non-blank explanation                                          -> 50510
+--        every Execution has EndUTC, or its unknown end is acknowledged in @UnknownEnds            -> 50501
 --        every Execution has at least one observation                                              -> 50502
 --        every Execution's phase is a configured phase                                             -> 50503
 --        every configured phase has at least one observation                                       -> 50504
@@ -18,7 +20,11 @@
 --      ObservedScore lies within the rule's MinScore..MaxScore inclusive                           -> 50506
 --   6. One snapshot row per ScoreObservation (all raters, no calculation), inserted with the session-context
 --      token set so dbo.trg_ScoreObservationSnapshot_Guard admits them.
---   7. LockedUTC on the version and SnapshotUTC on every row are ONE database-generated UTC timestamp. The token
+--      (V11) One FinalizationException row ('end-time-unknown') per acknowledged unknown end, with its explanation,
+--      inserted the same way (dbo.trg_FinalizationException_Guard). An acknowledgment never bypasses another check:
+--      the Execution still needs an observation, and its EndUTC stays NULL for good once the version is locked.
+--   7. LockedUTC on the version, SnapshotUTC on every snapshot row and RecordedUTC on every exception row are ONE
+--      database-generated UTC timestamp. The token
 --      stays set through the LockedUTC update, because dbo.trg_ExperimentVersion_Guard admits a NULL-to-value
 --      LockedUTC only while the token names that version (Issue #9); it is cleared right after that update.
 --   8. Commit.
@@ -36,7 +42,8 @@ GO
 CREATE OR ALTER PROCEDURE dbo.usp_FinalizeExperimentVersion
     @ExperimentVersionID bigint,
     @Found bit OUTPUT,
-    @LockedUTC datetime2(3) OUTPUT
+    @LockedUTC datetime2(3) OUTPUT,
+    @UnknownEnds dbo.FinalizationExceptionList READONLY  -- optional: omitted means none (the pre-V11 behavior)
 AS
 BEGIN
     -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
@@ -73,12 +80,20 @@ BEGIN
             THROW 50100, @msg, 1;
         END
 
-        -- 3. Pre-existing snapshot rows.
+        -- 3. Pre-existing snapshot or exception rows.
         SELECT @total = COUNT(*) FROM dbo.ScoreObservationSnapshot WHERE ExperimentVersionID = @ExperimentVersionID;
         IF @total > 0
         BEGIN
             SET @msg = CONCAT(N'ExperimentVersion ', @ExperimentVersionID, N' already has ', @total,
                 N' ScoreObservationSnapshot row(s); finalization will not run over existing snapshots. [Total=', @total, N']');
+            THROW 50507, @msg, 1;
+        END
+
+        SELECT @total = COUNT(*) FROM dbo.FinalizationException WHERE ExperimentVersionID = @ExperimentVersionID;
+        IF @total > 0
+        BEGIN
+            SET @msg = CONCAT(N'ExperimentVersion ', @ExperimentVersionID, N' already has ', @total,
+                N' FinalizationException row(s); finalization will not run over existing exceptions. [Total=', @total, N']');
             THROW 50507, @msg, 1;
         END
 
@@ -110,12 +125,36 @@ BEGIN
             THROW 50500, @msg, 1;
         END
 
-        -- 4b. Every Execution has EndUTC.
-        SELECT @total = COUNT(*) FROM @Execs WHERE EndUTC IS NULL;
+        -- 4a'. (V11) Every acknowledged unknown end names an Execution of this version that has no EndUTC, and carries a
+        --      non-blank explanation. Read under the exclusive lock, so an EndUTC set by a racing run-facts update that
+        --      committed first makes the acknowledgment stale here.
+        DECLARE @Invalid TABLE (ExecutionID bigint NOT NULL PRIMARY KEY);
+        INSERT INTO @Invalid (ExecutionID)
+            SELECT u.ExecutionID
+            FROM @UnknownEnds AS u
+            LEFT JOIN @Execs AS e ON e.ExecutionID = u.ExecutionID
+            WHERE e.ExecutionID IS NULL OR e.EndUTC IS NOT NULL OR LEN(LTRIM(RTRIM(u.Explanation))) = 0;
+        SELECT @total = COUNT(*) FROM @Invalid;
         IF @total > 0
         BEGIN
             SELECT @ids = STRING_AGG(CAST(ExecutionID AS nvarchar(20)), N',') WITHIN GROUP (ORDER BY ExecutionID)
-            FROM (SELECT TOP (50) ExecutionID FROM @Execs WHERE EndUTC IS NULL ORDER BY ExecutionID) AS t;
+            FROM (SELECT TOP (50) ExecutionID FROM @Invalid ORDER BY ExecutionID) AS t;
+            SET @more = CASE WHEN @total > 50 THEN CONCAT(N' (and ', @total - 50, N' more)') ELSE N'' END;
+            SET @msg = CONCAT(N'ExperimentVersion ', @ExperimentVersionID, N' cannot be finalized: ', @total,
+                N' acknowledged unknown end(s) are not accepted (each must name an Execution of this version that has no ',
+                N'EndUTC, with a non-blank explanation): ', @ids, @more, N'. [ExecutionIDs=', @ids, N';Total=', @total, N']');
+            THROW 50510, @msg, 1;
+        END
+
+        -- 4b. Every Execution has EndUTC, unless its unknown end is acknowledged (4a').
+        SELECT @total = COUNT(*) FROM @Execs AS e
+        WHERE e.EndUTC IS NULL AND NOT EXISTS (SELECT 1 FROM @UnknownEnds AS u WHERE u.ExecutionID = e.ExecutionID);
+        IF @total > 0
+        BEGIN
+            SELECT @ids = STRING_AGG(CAST(ExecutionID AS nvarchar(20)), N',') WITHIN GROUP (ORDER BY ExecutionID)
+            FROM (SELECT TOP (50) e.ExecutionID FROM @Execs AS e
+                  WHERE e.EndUTC IS NULL AND NOT EXISTS (SELECT 1 FROM @UnknownEnds AS u WHERE u.ExecutionID = e.ExecutionID)
+                  ORDER BY e.ExecutionID) AS t;
             SET @more = CASE WHEN @total > 50 THEN CONCAT(N' (and ', @total - 50, N' more)') ELSE N'' END;
             SET @msg = CONCAT(N'ExperimentVersion ', @ExperimentVersionID, N' cannot be finalized: ', @total,
                 N' Execution(s) have no EndUTC: ', @ids, @more, N'. [ExecutionIDs=', @ids, N';Total=', @total, N']');
@@ -226,6 +265,10 @@ BEGIN
         JOIN @Execs AS e ON e.ExecutionID = o.ExecutionID
         JOIN dbo.ScoreRule AS r ON r.ScoreRuleID = o.ScoreRuleID
         JOIN dbo.ScoreCategory AS c ON c.ScoreCategoryID = r.ScoreCategoryID;
+
+        INSERT INTO dbo.FinalizationException (ExperimentVersionID, ExecutionID, ExceptionCode, Explanation, RecordedUTC)
+        SELECT @ExperimentVersionID, u.ExecutionID, 'end-time-unknown', u.Explanation, @now
+        FROM @UnknownEnds AS u;
 
         UPDATE dbo.ExperimentVersion SET LockedUTC = @now WHERE ExperimentVersionID = @ExperimentVersionID;
 

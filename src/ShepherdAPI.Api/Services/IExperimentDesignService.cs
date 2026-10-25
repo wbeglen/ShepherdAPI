@@ -11,6 +11,7 @@ public interface IExperimentDesignService
     Task<ExperimentVersion> UpdateExperimentVersionAsync(long id, UpdateExperimentVersionRequest request);
     Task<ExperimentVersion> SetExperimentVersionStatusAsync(long id, SetExperimentVersionStatusRequest request);
     Task<ExperimentVersion> LockExperimentVersionAsync(long id, LockExperimentVersionRequest request);
+    Task<IReadOnlyList<FinalizationException>> GetFinalizationExceptionsAsync(long experimentVersionId);
 
     Task<IReadOnlyList<Iteration>> GetIterationsAsync(long experimentVersionId);
     Task<Iteration> GetIterationAsync(long id);

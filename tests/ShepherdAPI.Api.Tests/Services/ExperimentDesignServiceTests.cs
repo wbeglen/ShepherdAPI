@@ -104,7 +104,7 @@ public class ExperimentDesignServiceTests
     [Fact]
     public async Task LockExperimentVersionAsync_Finalizes_IgnoringTheOptionalStatusId()
     {
-        _repository.Setup(r => r.FinalizeExperimentVersionAsync(1)).ReturnsAsync(DateTime.UtcNow);
+        _repository.Setup(r => r.FinalizeExperimentVersionAsync(1, It.IsAny<IReadOnlyList<(long, string)>>())).ReturnsAsync(DateTime.UtcNow);
         _repository.Setup(r => r.GetExperimentVersionAsync(1)).ReturnsAsync(new ExperimentVersion { ExperimentVersionID = 1, StatusID = 5, LockedUTC = DateTime.UtcNow });
 
         var withStatus = await _sut.LockExperimentVersionAsync(1, new LockExperimentVersionRequest { StatusID = 2 });
@@ -113,15 +113,76 @@ public class ExperimentDesignServiceTests
         Assert.Equal(5, withStatus.StatusID);
         Assert.Equal(5, without.StatusID);
         _repository.Verify(r => r.SetExperimentVersionStatusAsync(It.IsAny<long>(), It.IsAny<int>()), Times.Never);
-        _repository.Verify(r => r.FinalizeExperimentVersionAsync(1), Times.Exactly(2));
+        _repository.Verify(r => r.FinalizeExperimentVersionAsync(1, It.Is<IReadOnlyList<(long, string)>>(u => u.Count == 0)), Times.Exactly(2));
     }
 
     [Fact]
     public async Task LockExperimentVersionAsync_ThrowsNotFound_WhenTheVersionDoesNotExist()
     {
-        _repository.Setup(r => r.FinalizeExperimentVersionAsync(9)).ReturnsAsync((DateTime?)null);
+        _repository.Setup(r => r.FinalizeExperimentVersionAsync(9, It.IsAny<IReadOnlyList<(long, string)>>())).ReturnsAsync((DateTime?)null);
 
         await Assert.ThrowsAsync<NotFoundException>(() => _sut.LockExperimentVersionAsync(9, new LockExperimentVersionRequest()));
+    }
+
+    [Fact]
+    public async Task LockExperimentVersionAsync_PassesTheUnknownEnds_AsGiven()
+    {
+        IReadOnlyList<(long ExecutionID, string Explanation)>? passed = null;
+        _repository.Setup(r => r.FinalizeExperimentVersionAsync(1, It.IsAny<IReadOnlyList<(long, string)>>()))
+            .Callback<long, IReadOnlyList<(long, string)>>((_, u) => passed = u)
+            .ReturnsAsync(DateTime.UtcNow);
+        _repository.Setup(r => r.GetExperimentVersionAsync(1)).ReturnsAsync(new ExperimentVersion { ExperimentVersionID = 1, LockedUTC = DateTime.UtcNow });
+
+        await _sut.LockExperimentVersionAsync(1, new LockExperimentVersionRequest
+        {
+            UnknownEnds = [new() { ExecutionID = 9, Explanation = "  Cursor could not report its end time.  " }],
+        });
+
+        Assert.Equal([(9L, "  Cursor could not report its end time.  ")], passed!); // stored exactly as given
+    }
+
+    public static TheoryData<long, string> MalformedUnknownEnds => new()
+    {
+        { 0, "why" },
+        { -3, "why" },
+        { 9, "" },
+        { 9, "   " },
+        { 9, new string('x', UnknownEndAcknowledgment.ExplanationMaxLength + 1) },
+    };
+
+    [Theory]
+    [MemberData(nameof(MalformedUnknownEnds))]
+    public async Task LockExperimentVersionAsync_RejectsAMalformedUnknownEnd_WithoutFinalizing(long executionId, string explanation)
+    {
+        var request = new LockExperimentVersionRequest { UnknownEnds = [new() { ExecutionID = executionId, Explanation = explanation }] };
+
+        var ex = await Assert.ThrowsAsync<ValidationAppException>(() => _sut.LockExperimentVersionAsync(1, request));
+
+        Assert.True(ex.Errors.ContainsKey(nameof(LockExperimentVersionRequest.UnknownEnds)));
+        _repository.Verify(r => r.FinalizeExperimentVersionAsync(It.IsAny<long>(), It.IsAny<IReadOnlyList<(long, string)>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task LockExperimentVersionAsync_RejectsAnExecutionNamedTwice_WithoutFinalizing()
+    {
+        var request = new LockExperimentVersionRequest
+        {
+            UnknownEnds = [new() { ExecutionID = 9, Explanation = "a" }, new() { ExecutionID = 9, Explanation = "b" }],
+        };
+
+        var ex = await Assert.ThrowsAsync<ValidationAppException>(() => _sut.LockExperimentVersionAsync(1, request));
+
+        Assert.Contains("9", ex.Errors[nameof(LockExperimentVersionRequest.UnknownEnds)].Single());
+        _repository.Verify(r => r.FinalizeExperimentVersionAsync(It.IsAny<long>(), It.IsAny<IReadOnlyList<(long, string)>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GetFinalizationExceptionsAsync_ThrowsNotFound_ForAMissingVersion()
+    {
+        _repository.Setup(r => r.GetExperimentVersionAsync(9)).ReturnsAsync((ExperimentVersion?)null);
+
+        await Assert.ThrowsAsync<NotFoundException>(() => _sut.GetFinalizationExceptionsAsync(9));
+        _repository.Verify(r => r.GetFinalizationExceptionsAsync(It.IsAny<long>()), Times.Never);
     }
 
     [Fact]

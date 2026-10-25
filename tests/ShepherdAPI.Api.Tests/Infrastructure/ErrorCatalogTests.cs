@@ -37,6 +37,8 @@ public class ErrorCatalogTests
         { "finalize-snapshot-rows-exist", HttpStatusCode.Conflict, 50507 },
         { "snapshot-insert-not-permitted", HttpStatusCode.Conflict, 50508 },
         { "lock-requires-finalization", HttpStatusCode.Conflict, 50509 },
+        { "finalize-unknown-end-invalid", HttpStatusCode.Conflict, 50510 },
+        { "finalization-exception-insert-not-permitted", HttpStatusCode.Conflict, 50511 },
         { "retryable-conflict", HttpStatusCode.Conflict, null },
     };
 

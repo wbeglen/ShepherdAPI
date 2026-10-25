@@ -33,6 +33,24 @@ public class LockExperimentVersionRequest
 {
     /// <summary>Accepted for compatibility with earlier clients and ignored by finalization.</summary>
     public int? StatusID { get; set; }
+
+    /// <summary>
+    /// Executions of this version whose end time is unknown, accepted for finalization without an EndUTC, each with a
+    /// mandatory explanation (V11). Each becomes an immutable FinalizationException row committed with the lock; the
+    /// Execution's EndUTC then stays NULL for good. Omitted or empty: every Execution must have an EndUTC.
+    /// </summary>
+    public List<UnknownEndAcknowledgment>? UnknownEnds { get; set; }
+}
+
+/// <summary>An Execution whose end time is unknown, accepted at finalization, with why (V11).</summary>
+public class UnknownEndAcknowledgment
+{
+    public long ExecutionID { get; set; }
+
+    /// <summary>Why the end time is unknown. Required, not blank, at most 2000 characters; stored as given.</summary>
+    [Required, MaxLength(UnknownEndAcknowledgment.ExplanationMaxLength)] public string Explanation { get; set; } = string.Empty;
+
+    public const int ExplanationMaxLength = 2000;
 }
 
 public class CreateIterationRequest

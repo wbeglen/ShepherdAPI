@@ -37,6 +37,7 @@ public class StandaloneTransactionIntegrationTests(DatabaseFixture fixture)
             FROM sys.procedures AS p
             JOIN sys.parameters AS pr ON pr.object_id = p.object_id
             WHERE p.name LIKE N'usp[_]%'
+              AND pr.is_readonly = 0 -- a table-valued parameter cannot be NULL; omitted, it is an empty table
             ORDER BY p.name, pr.parameter_id;
             """)).ToList();
 

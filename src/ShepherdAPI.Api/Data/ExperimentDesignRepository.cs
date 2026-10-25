@@ -66,15 +66,41 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return rows > 0;
     }
 
-    public async Task<DateTime?> FinalizeExperimentVersionAsync(long id)
+    public async Task<DateTime?> FinalizeExperimentVersionAsync(long id, IReadOnlyList<(long ExecutionID, string Explanation)> unknownEnds)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
         var parameters = new DynamicParameters();
         parameters.Add("@ExperimentVersionID", id);
         parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
         parameters.Add("@LockedUTC", dbType: DbType.DateTime2, direction: ParameterDirection.Output);
+        if (unknownEnds.Count > 0)
+        {
+            // An omitted table-valued parameter is an empty table: the procedure's pre-V11 behavior.
+            var table = new DataTable();
+            table.Columns.Add("ExecutionID", typeof(long));
+            table.Columns.Add("Explanation", typeof(string));
+            foreach (var (executionId, explanation) in unknownEnds)
+            {
+                table.Rows.Add(executionId, explanation);
+            }
+
+            parameters.Add("@UnknownEnds", table.AsTableValuedParameter("dbo.FinalizationExceptionList"));
+        }
+
         await connection.ExecuteAsync("dbo.usp_FinalizeExperimentVersion", parameters, commandType: CommandType.StoredProcedure);
         return parameters.Get<bool>("@Found") ? parameters.Get<DateTime?>("@LockedUTC") : null;
+    }
+
+    public async Task<IReadOnlyList<FinalizationException>> GetFinalizationExceptionsAsync(long experimentVersionId)
+    {
+        using var connection = await connectionFactory.CreateOpenConnectionAsync();
+        var rows = await connection.QueryAsync<FinalizationException>(
+            """
+            SELECT ExperimentVersionID, ExecutionID, ExceptionCode, Explanation, RecordedUTC
+            FROM dbo.FinalizationException WHERE ExperimentVersionID = @experimentVersionId ORDER BY ExecutionID, ExceptionCode;
+            """,
+            new { experimentVersionId });
+        return rows.AsList();
     }
 
     // -- Iteration ------------------------------------------------------------
