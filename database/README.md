@@ -2,8 +2,8 @@
 
 ## Layout and order
 
-1. The baseline: a full snapshot that creates the `Experiments` database, all tables, constraints, triggers, procedures, views and functions. The current baseline is `Create_Experiments_Database_Version_10.sql` (V10). It equals the v9 baseline plus every script in `upgrade/` and `programmability/` as of Issue #10. The earlier snapshots, `Create_Experiments_Database_And_Tables-6.sql` through `-9.sql`, are kept for history. A baseline is for creating a database from scratch, never for applying to an existing one.
-2. `upgrade/` — schema changes made after a baseline. V10 already includes `001` (the `ScoreObservationSnapshot` CHECK constraints). The script stays because it brings a v9 database up to V10, and it changes nothing on a V10 database. `002` and `003` are the V11 schema changes, which no baseline includes yet (see "Upgrading V10 to V11").
+1. The baseline: a full snapshot that creates the `Experiments` database, all tables, constraints, triggers, procedures, views and functions. The current baseline is `Create_Experiments_Database_Version_11.sql` (V11). It equals V10 plus `upgrade/002` and `003` and the V11 `programmability/` changes, and it matches the real V11 `Experiments` database exactly. The earlier snapshots, `Create_Experiments_Database_Version_10.sql` and `Create_Experiments_Database_And_Tables-6.sql` through `-9.sql`, are kept for history. A baseline is for creating a database from scratch, never for applying to an existing one.
+2. `upgrade/` — schema changes made after a baseline. The V11 baseline already includes all three: `001` (the `ScoreObservationSnapshot` CHECK constraints, brings a v9 database up to V10), and `002` and `003` (bring a V10 database up to V11; see "Upgrading V10 to V11"). They stay because they upgrade older databases, and they change nothing on a V11 database.
 3. `programmability/` — stored procedures, views, functions, triggers and table types.
 4. `maintenance/` — read-only operational scripts, such as the pre-deployment audit. They are never part of a deployment.
 
@@ -115,4 +115,4 @@ done
 
 ## Tests
 
-`DatabaseFixture` builds a throwaway database (`ShepherdAPI_IntegrationTest`) from the current baseline (`RepoPaths.BaselineDdlFileName`, now V10), applies `upgrade/` then `programmability/`, and drops it afterward. It never touches the real `Experiments` database. The baseline already contains the V10 scripts, so applying them again also proves they are re-runnable. A script added after V10, such as the V11 scripts, is applied on top, the same way it would be in a deployment.
+`DatabaseFixture` builds a throwaway database (`ShepherdAPI_IntegrationTest`) from the current baseline (`RepoPaths.BaselineDdlFileName`, now V11), applies `upgrade/` then `programmability/`, and drops it afterward. It never touches the real `Experiments` database. The baseline already contains every script in those folders, so applying them again also proves they are re-runnable. A script added after V11 is applied on top, the same way it would be in a deployment.

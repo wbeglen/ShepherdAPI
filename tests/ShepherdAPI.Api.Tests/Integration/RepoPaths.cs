@@ -3,7 +3,7 @@ namespace ShepherdAPI.Api.Tests.Integration;
 /// <summary>Locates repository files by walking up from the test output directory.</summary>
 public static class RepoPaths
 {
-    public const string BaselineDdlFileName = "Create_Experiments_Database_Version_10.sql";
+    public const string BaselineDdlFileName = "Create_Experiments_Database_Version_11.sql";
 
     public static string BaselineDdl => FindFile("database", BaselineDdlFileName);
     public static string OpenApiSnapshot => FindFile("contracts", "openapi.json");

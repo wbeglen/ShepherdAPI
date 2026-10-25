@@ -9,9 +9,9 @@ namespace ShepherdAPI.Api.Tests.Integration;
 public class DeploymentFoundationTests(DatabaseFixture fixture)
 {
     [Fact]
-    public async Task FixtureSchema_MatchesV10()
+    public async Task FixtureSchema_MatchesV11()
     {
-        Assert.Equal("Create_Experiments_Database_Version_10.sql", RepoPaths.BaselineDdlFileName);
+        Assert.Equal("Create_Experiments_Database_Version_11.sql", RepoPaths.BaselineDdlFileName);
 
         using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
 

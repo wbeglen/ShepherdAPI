@@ -14,7 +14,7 @@ ShepherdAPI is a private, low-volume system for Alpha. The architecture optimize
 ## 2. System Boundary
 
 - ShepherdAPI is the sole system boundary. Clients never access the `Experiments` database directly.
-- The existing `Experiments` database ([database/Create_Experiments_Database_Version_10.sql](../database/Create_Experiments_Database_Version_10.sql), the current V10 baseline) is authoritative. Its DDL is not redesigned. The only schema changes beyond the original design are explicit and authorized: `ExperimentVersion.LockedUTC` (§5.3), the `ScoreObservationSnapshot` table (§5.7), the snapshot `CHECK` constraints (§5.7), which were added through [database/upgrade/](../database/upgrade/) and are folded into V10, and the removal of `ScoreRule.RowState` in v9 (§5.5, Issue #7).
+- The existing `Experiments` database ([database/Create_Experiments_Database_Version_11.sql](../database/Create_Experiments_Database_Version_11.sql), the current V11 baseline) is authoritative. Its DDL is not redesigned. The only schema changes beyond the original design are explicit and authorized: `ExperimentVersion.LockedUTC` (§5.3), the `ScoreObservationSnapshot` table (§5.7), the snapshot `CHECK` constraints (§5.7), which were added through [database/upgrade/](../database/upgrade/) and are folded into V10, the removal of `ScoreRule.RowState` in v9 (§5.5, Issue #7), and in V11 the `FinalizationException` table (§5.7) and the corrected `Artifact.ByteLength` CHECK (§6.3).
 - All new persistent operations pass through ShepherdAPI.
 - `Execution.ExecutionID` is `BIGINT`.
 - UTC is used for all persisted timestamps.
@@ -197,7 +197,7 @@ ASP.NET Core Web API (.NET 8 LTS), Swashbuckle for OpenAPI/Swagger UI, Dapper fo
 
 Integrity rules that must hold under concurrency live in T-SQL objects checked into the repository — stored procedures, triggers, views and a table type — invoked through Dapper. Services shape rows and resolve 404s; they do not decide lock or lifecycle questions from stale reads.
 
-Scripts are laid out under [database/](../database/README.md): the full-snapshot baseline (`Create_Experiments_Database_Version_10.sql`, for creating a database from scratch; it includes the `upgrade/` and `programmability/` scripts as of Issue #10, and the earlier `Create_Experiments_Database_And_Tables-N.sql` snapshots are kept for history), then `upgrade/` (schema changes after the baseline), then `programmability/` (procedures, views, triggers; numbered, applied in filename order). Every script is re-runnable (`CREATE OR ALTER`, guarded DDL). Permissions are not scripted (§7).
+Scripts are laid out under [database/](../database/README.md): the full-snapshot baseline (`Create_Experiments_Database_Version_11.sql`, for creating a database from scratch; it includes every `upgrade/` and `programmability/` script as of V11, and the earlier snapshots, V10 and `Create_Experiments_Database_And_Tables-N.sql`, are kept for history), then `upgrade/` (schema changes after the baseline), then `programmability/` (procedures, views, triggers; numbered, applied in filename order). Every script is re-runnable (`CREATE OR ALTER`, guarded DDL). Permissions are not scripted (§7).
 
 ### 6.2 Resource model
 
