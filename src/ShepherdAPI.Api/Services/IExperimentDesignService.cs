@@ -11,6 +11,7 @@ public interface IExperimentDesignService
     Task<ExperimentVersion> UpdateExperimentVersionAsync(long id, UpdateExperimentVersionRequest request);
     Task<ExperimentVersion> SetExperimentVersionStatusAsync(long id, SetExperimentVersionStatusRequest request);
     Task<ExperimentVersion> LockExperimentVersionAsync(long id, LockExperimentVersionRequest request);
+    Task<IReadOnlyList<FinalizationException>> GetFinalizationExceptionsAsync(long experimentVersionId);
 
     Task<IReadOnlyList<Iteration>> GetIterationsAsync(long experimentVersionId);
     Task<Iteration> GetIterationAsync(long id);
@@ -24,9 +25,9 @@ public interface IExperimentDesignService
     Task<Parameter> UpdateParameterAsync(long id, UpdateParameterRequest request);
     Task DeleteParameterAsync(long id);
 
-    // ScoreRule — add/delete-only lifecycle; no update (definitions are immutable after creation).
     Task<IReadOnlyList<ScoreRule>> GetScoreRulesAsync(long experimentVersionId);
     Task<ScoreRule> GetScoreRuleAsync(int id);
     Task<ScoreRule> CreateScoreRuleAsync(CreateScoreRuleRequest request);
+    Task<ScoreRule> UpdateScoreRuleAsync(int id, UpdateScoreRuleRequest request);
     Task DeleteScoreRuleAsync(int id);
 }

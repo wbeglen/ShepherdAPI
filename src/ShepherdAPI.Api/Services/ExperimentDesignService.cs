@@ -49,9 +49,10 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
     public async Task<ExperimentVersion> LockExperimentVersionAsync(long id, LockExperimentVersionRequest request)
     {
         // request.StatusID is accepted for compatibility and deliberately ignored (Issue #2).
+        var unknownEnds = ValidateUnknownEnds(request.UnknownEnds);
         try
         {
-            if (await repository.FinalizeExperimentVersionAsync(id) is null)
+            if (await repository.FinalizeExperimentVersionAsync(id, unknownEnds) is null)
             {
                 throw NotFound("ExperimentVersion", id);
             }
@@ -62,6 +63,48 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
         }
 
         return await GetExperimentVersionAsync(id);
+    }
+
+    public async Task<IReadOnlyList<FinalizationException>> GetFinalizationExceptionsAsync(long experimentVersionId)
+    {
+        await GetExperimentVersionAsync(experimentVersionId);
+        return await repository.GetFinalizationExceptionsAsync(experimentVersionId);
+    }
+
+    /// <summary>
+    /// The request's own shape (V11): positive, distinct ExecutionIDs and explanations that are not blank and fit. Whether
+    /// each Execution belongs to the version and has no EndUTC is decided by the procedure, under the lock (50510).
+    /// </summary>
+    private static IReadOnlyList<(long ExecutionID, string Explanation)> ValidateUnknownEnds(List<UnknownEndAcknowledgment>? unknownEnds)
+    {
+        if (unknownEnds is null || unknownEnds.Count == 0)
+        {
+            return [];
+        }
+
+        const string field = nameof(LockExperimentVersionRequest.UnknownEnds);
+        if (unknownEnds.Any(u => u is null || u.ExecutionID <= 0))
+        {
+            throw new ValidationAppException(field, "Every unknown end must name an ExecutionID greater than zero.");
+        }
+
+        if (unknownEnds.Any(u => string.IsNullOrWhiteSpace(u.Explanation)))
+        {
+            throw new ValidationAppException(field, "Every unknown end must have an explanation that is not blank.");
+        }
+
+        if (unknownEnds.Any(u => u.Explanation.Length > UnknownEndAcknowledgment.ExplanationMaxLength))
+        {
+            throw new ValidationAppException(field, $"An explanation can be at most {UnknownEndAcknowledgment.ExplanationMaxLength} characters.");
+        }
+
+        var duplicates = unknownEnds.GroupBy(u => u.ExecutionID).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+        if (duplicates.Count > 0)
+        {
+            throw new ValidationAppException(field, $"Each Execution can be named only once; repeated: {string.Join(", ", duplicates)}.");
+        }
+
+        return unknownEnds.Select(u => (u.ExecutionID, u.Explanation)).ToList();
     }
 
     // -- Iteration ------------------------------------------------------------
@@ -181,15 +224,29 @@ public class ExperimentDesignService(IExperimentDesignRepository repository) : I
         return await GetScoreRuleAsync(id);
     }
 
-    /// <summary>
-    /// The dedicated ScoreRule soft-delete (Issue #4): RowState 'A' becomes 'D' (HTTP 204). Not idempotent: an
-    /// already-deleted rule is the score-rule-already-deleted error, and any other RowState is
-    /// score-rule-invalid-rowstate. A live version (it has Executions and is not locked) is design-frozen. The
-    /// lifecycle check runs before the RowState check, both under the parent-version lock, inside the procedure.
-    /// </summary>
+    public async Task<ScoreRule> UpdateScoreRuleAsync(int id, UpdateScoreRuleRequest request)
+    {
+        EnsureScoreRange(request.MinScore, request.MaxScore);
+
+        var scoreRule = await GetScoreRuleAsync(id);
+
+        scoreRule.WeightPercent = request.WeightPercent;
+        scoreRule.MinScore = request.MinScore;
+        scoreRule.MaxScore = request.MaxScore;
+        scoreRule.Active = request.Active;
+        scoreRule.RuleNotes = request.RuleNotes;
+        if (!await repository.UpdateScoreRuleAsync(scoreRule))
+        {
+            throw NotFound("ScoreRule", id);
+        }
+
+        return await GetScoreRuleAsync(id);
+    }
+
+    /// <summary>A physical delete (Issue #7); a second delete of the same rule is therefore 404.</summary>
     public async Task DeleteScoreRuleAsync(int id)
     {
-        if (!await repository.SoftDeleteScoreRuleAsync(id))
+        if (!await repository.DeleteScoreRuleAsync(id))
         {
             throw NotFound("ScoreRule", id);
         }

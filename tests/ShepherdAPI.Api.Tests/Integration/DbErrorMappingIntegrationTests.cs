@@ -139,14 +139,13 @@ public class DbErrorMappingIntegrationTests(DatabaseFixture fixture)
     [Fact]
     public async Task ForeignKeyViolation_StaysTheGenericConstraintViolation()
     {
-        var repository = new RecordingRepository(fixture.ConnectionFactory);
-        var orphan = new Models.Artifact
-        {
-            ExecutionID = long.MaxValue, ArtifactTypeID = fixture.ArtifactTypeId, OriginalName = "n", OriginalURI = "u", StoredURI = "u",
-            MimeType = "m", ByteLength = 1, SHA256 = new string('A', 64), ReceivedUTC = DateTime.UtcNow,
-        };
+        // A raw insert naming an Agent that does not exist: a plain foreign-key violation (the artifact path now reports a
+        // missing Execution as a 404 through its procedure, so it no longer reaches the foreign key).
+        using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
 
-        var thrown = await Assert.ThrowsAsync<SqlException>(() => repository.CreateArtifactAsync(orphan));
+        var thrown = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync(
+            "INSERT dbo.Rater (Name, RaterType, AgentID) VALUES (@name, 'Human', 2147483647);", new { name = "FkRater" + Guid.NewGuid().ToString("N") }));
+        Assert.Equal(547, thrown.Number);
 
         var (status, body) = await ExceptionHandlingMiddlewareTests.RunAsync(thrown);
         Assert.Equal(409, status);
@@ -178,8 +177,7 @@ public class DbErrorMappingIntegrationTests(DatabaseFixture fixture)
         var designService = new ExperimentDesignService(new ExperimentDesignRepository(fixture.ConnectionFactory));
         var recordingService = new RecordingService(
             new RecordingRepository(fixture.ConnectionFactory),
-            new ExperimentDesignRepository(fixture.ConnectionFactory),
-            new LockGuardQueries(fixture.ConnectionFactory));
+            new ExperimentDesignRepository(fixture.ConnectionFactory));
 
         var version = await designService.CreateExperimentVersionAsync(new CreateExperimentVersionRequest
         {

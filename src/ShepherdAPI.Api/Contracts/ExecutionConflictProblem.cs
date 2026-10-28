@@ -14,13 +14,13 @@ public class ExecutionConflictProblem : ProblemDetails
     public long? ExperimentVersionID { get; set; }
     public int? PhaseID { get; set; }
 
-    /// <summary>The total the phase's active rules must reach (100.00).</summary>
+    /// <summary>The total the phase's rules must reach (100.00).</summary>
     public decimal? ExpectedWeightPercent { get; set; }
 
-    /// <summary>The total the phase's active rules actually reach (0 when there are none).</summary>
+    /// <summary>The total the phase's rules actually reach (0 when there are none).</summary>
     public decimal? ActualWeightPercent { get; set; }
 
-    /// <summary>The phase's active rules (RowState 'A') behind the total; empty when the phase has none.</summary>
+    /// <summary>The phase's rules behind the total; empty when the phase has none.</summary>
     public List<ExecutionConflictRule>? ScoreRules { get; set; }
 }
 

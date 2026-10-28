@@ -16,8 +16,7 @@ namespace ShepherdAPI.Api.Services;
 /// </summary>
 public class RecordingService(
     IRecordingRepository repository,
-    IExperimentDesignRepository designRepository,
-    ILockGuardQueries lockGuard) : IRecordingService
+    IExperimentDesignRepository designRepository) : IRecordingService
 {
     // -- Execution --------------------------------------------------------------
 
@@ -70,16 +69,10 @@ public class RecordingService(
 
     public async Task<Execution> UpdateExecutionRunFactsAsync(long id, UpdateExecutionRunFactsRequest request)
     {
+        // The pre-read supplies the 404 and the immutable StartUTC. The lock and "EndUTC is set" restrictions are
+        // checked inside dbo.usp_UpdateExecutionRunFacts, under the parent-version lock (version-locked,
+        // execution-run-facts-frozen).
         var execution = await GetExecutionAsync(id);
-
-        var lockedUtc = await lockGuard.GetLockedUtcByExecutionIdAsync(id);
-        EnsureUnlocked(lockedUtc, "Execution", id);
-
-        if (execution.EndUTC is not null)
-        {
-            throw new RecordLockedException(
-                $"Execution {id} completed at {execution.EndUTC:O}; its run-facts are immutable through normal ShepherdAPI operations.");
-        }
 
         if (request.EndUTC is not null && request.EndUTC < execution.StartUTC)
         {
@@ -91,8 +84,13 @@ public class RecordingService(
             throw new ValidationAppException(nameof(request.InterventionCount), "InterventionCount must be greater than or equal to zero.");
         }
 
-        await repository.UpdateExecutionRunFactsAsync(
+        var found = await repository.UpdateExecutionRunFactsAsync(
             id, request.ModelUsed, request.InterfaceUsed, request.InterventionCount, request.OutcomeNotes, request.EndUTC);
+        if (!found)
+        {
+            throw NotFound("Execution", id);
+        }
+
         return await GetExecutionAsync(id);
     }
 
@@ -105,10 +103,7 @@ public class RecordingService(
 
     public async Task<Artifact> CreateArtifactAsync(CreateArtifactRequest request)
     {
-        await GetExecutionAsync(request.ExecutionID); // 404 if the Execution doesn't exist.
-
-        var lockedUtc = await lockGuard.GetLockedUtcByExecutionIdAsync(request.ExecutionID);
-        EnsureUnlocked(lockedUtc, "Execution", request.ExecutionID);
+        await GetExecutionAsync(request.ExecutionID); // 404 if the Execution doesn't exist. The lock is checked in dbo.usp_CreateArtifact.
 
         var artifact = new Artifact
         {
@@ -124,7 +119,9 @@ public class RecordingService(
             StoredUTC = request.StoredUTC,
         };
         var id = await repository.CreateArtifactAsync(artifact);
-        return await GetArtifactAsync(id);
+
+        // Null means the Execution vanished between the lookup above and the procedure's own check.
+        return await GetArtifactAsync(id ?? throw NotFound("Execution", request.ExecutionID));
     }
 
     // -- ScoreObservation -----------------------------------------------------------
@@ -135,9 +132,9 @@ public class RecordingService(
         await repository.GetScoreObservationAsync(id) ?? throw NotFound("ScoreObservation", id);
 
     /// <summary>
-    /// The lock, context (version, phase, rule usable) and range checks run inside
+    /// The lock, context (version, phase) and range checks run inside
     /// dbo.usp_CreateScoreObservation, atomically with the insert; their failures surface as the catalog's
-    /// version-locked, version-phase-mismatch, unavailable-rule and out-of-range-score errors, and a duplicate as
+    /// version-locked, version-phase-mismatch and out-of-range-score errors, and a duplicate as
     /// duplicate-observation. Incomplete phases, unfinished Executions and missing observations never block a write.
     /// </summary>
     public async Task<ScoreObservation> CreateScoreObservationAsync(CreateScoreObservationRequest request)
@@ -179,11 +176,10 @@ public class RecordingService(
     public async Task<ScoreObservationEvidence> AddEvidenceAsync(long scoreObservationId, CreateScoreObservationEvidenceRequest request)
     {
         var observation = await GetScoreObservationAsync(scoreObservationId);
-
-        var lockedUtc = await lockGuard.GetLockedUtcByScoreObservationIdAsync(scoreObservationId);
-        EnsureUnlocked(lockedUtc, "ScoreObservation", scoreObservationId);
-
         var artifact = await GetArtifactAsync(request.ArtifactID);
+
+        // Both Executions are immutable, so this check cannot race and stays here; the lock is checked, with both
+        // owning versions locked, in dbo.usp_AddEvidence.
         if (artifact.ExecutionID != observation.ExecutionID)
         {
             throw new ValidationAppException(nameof(request.ArtifactID),
@@ -196,16 +192,17 @@ public class RecordingService(
             ArtifactID = request.ArtifactID,
             EvidenceNotes = request.EvidenceNotes,
         };
-        await repository.CreateEvidenceLinkAsync(link);
+        if (!await repository.CreateEvidenceLinkAsync(link))
+        {
+            throw NotFound("ScoreObservationEvidence", $"{scoreObservationId}/{request.ArtifactID}");
+        }
+
         return link;
     }
 
     public async Task RemoveEvidenceAsync(long scoreObservationId, long artifactId)
     {
         await GetScoreObservationAsync(scoreObservationId);
-
-        var lockedUtc = await lockGuard.GetLockedUtcByScoreObservationIdAsync(scoreObservationId);
-        EnsureUnlocked(lockedUtc, "ScoreObservation", scoreObservationId);
 
         var removed = await repository.DeleteEvidenceLinkAsync(scoreObservationId, artifactId);
         if (!removed)
@@ -215,15 +212,6 @@ public class RecordingService(
     }
 
     // -- helpers ------------------------------------------------------------------
-
-    private static void EnsureUnlocked(DateTime? lockedUtc, string ownerEntity, object ownerId)
-    {
-        if (lockedUtc is not null)
-        {
-            throw new RecordLockedException(
-                $"The ExperimentVersion governing {ownerEntity} {ownerId} was locked at {lockedUtc:O}; its data is immutable through normal ShepherdAPI operations.");
-        }
-    }
 
     private static NotFoundException NotFound(string entity, object id) => new($"{entity} {id} was not found.");
 }

@@ -21,8 +21,7 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
     {
         designRepo = new ExperimentDesignRepository(fixture.ConnectionFactory);
         var recordingRepo = new RecordingRepository(fixture.ConnectionFactory);
-        var lockGuard = new LockGuardQueries(fixture.ConnectionFactory);
-        return new RecordingService(recordingRepo, designRepo, lockGuard);
+        return new RecordingService(recordingRepo, designRepo);
     }
 
     private async Task<(Models.ExperimentVersion Version, Models.Iteration Iteration, Models.Execution Execution, int RuleId)> CreateBaseHierarchyAsync(
@@ -140,8 +139,25 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
             observation.ScoreObservationID, new UpdateScoreObservationContentRequest { ObservedScore = 5.0m }));
         Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, lockedUpdate.Number);
 
-        await Assert.ThrowsAsync<RecordLockedException>(() => recordingService.AddEvidenceAsync(
+        // The run-facts, artifact and evidence writes are checked inside their controlled-write procedures (Issue #8): a
+        // locked version is the catalog's version-locked error (SQL 50100) rather than record-locked. The Execution is
+        // also ended by now, and the lock error takes precedence over execution-run-facts-frozen (50201).
+        async Task AssertVersionLocked(Func<Task> write)
+        {
+            var ex = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(write);
+            Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, ex.Number);
+        }
+
+        await AssertVersionLocked(() => recordingService.AddEvidenceAsync(
             observation.ScoreObservationID, new CreateScoreObservationEvidenceRequest { ArtifactID = artifact.ArtifactID }));
+        await AssertVersionLocked(() => recordingService.RemoveEvidenceAsync(observation.ScoreObservationID, artifact.ArtifactID));
+        await AssertVersionLocked(() => recordingService.UpdateExecutionRunFactsAsync(
+            execution.ExecutionID, new UpdateExecutionRunFactsRequest { OutcomeNotes = "too late" }));
+        await AssertVersionLocked(() => recordingService.CreateArtifactAsync(new CreateArtifactRequest
+        {
+            ExecutionID = execution.ExecutionID, ArtifactTypeID = fixture.ArtifactTypeId, OriginalName = "late.png", OriginalURI = "file://l",
+            StoredURI = "file://l", MimeType = "image/png", ByteLength = 1, SHA256 = new string('B', 64), ReceivedUTC = DateTime.UtcNow,
+        }));
 
         // Finalizing again is the version-locked error (SQL 50100), not a second finalization.
         var lockedAgain = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => designService.LockExperimentVersionAsync(
@@ -171,9 +187,11 @@ public class LockEnforcementIntegrationTests(DatabaseFixture fixture)
         Assert.NotNull(completed.EndUTC);
 
         // The ExperimentVersion itself is still unlocked, but the Execution's own run-facts are
-        // now frozen because EndUTC is set (docs/ARCHITECTURE.md §5.1) — independent invariant.
-        await Assert.ThrowsAsync<RecordLockedException>(() => recordingService.UpdateExecutionRunFactsAsync(
+        // now frozen because EndUTC is set (docs/ARCHITECTURE.md §5.1) — independent invariant, checked inside
+        // dbo.usp_UpdateExecutionRunFacts and reported as execution-run-facts-frozen (SQL 50201).
+        var frozen = await Assert.ThrowsAsync<Microsoft.Data.SqlClient.SqlException>(() => recordingService.UpdateExecutionRunFactsAsync(
             execution.ExecutionID, new UpdateExecutionRunFactsRequest { InterventionCount = 2, OutcomeNotes = "Trying to change this." }));
+        Assert.Equal(ErrorCatalog.ExecutionRunFactsFrozen.SqlNumber, frozen.Number);
     }
 
     private async Task<int> CreateScoreRuleAsync(ExperimentDesignService designService, long experimentVersionId)

@@ -7,10 +7,10 @@ namespace ShepherdAPI.Api.Tests.Services;
 
 public class ExecutionRuleConfigurationTests
 {
-    private static ScoreRule Rule(int id, long version, int phase, int category, decimal weight, string rowState = "A", bool active = true) => new()
+    private static ScoreRule Rule(int id, long version, int phase, int category, decimal weight, bool active = true) => new()
     {
         ScoreRuleID = id, ExperimentVersionID = version, PhaseID = phase, ScoreCategoryID = category,
-        WeightPercent = weight, MinScore = 0, MaxScore = 5, Active = active, RowState = rowState,
+        WeightPercent = weight, MinScore = 0, MaxScore = 5, Active = active,
     };
 
     [Fact]
@@ -35,19 +35,18 @@ public class ExecutionRuleConfigurationTests
     }
 
     [Fact]
-    public void Describe_IgnoresNonActiveRowStates_ButNotTheActiveFlag()
+    public void Describe_CountsInactiveRules_TheActiveFlagIsIgnored()
     {
         var rules = new[]
         {
-            Rule(1, 7, 2, 1, 40m, rowState: "A", active: false),  // Active flag is irrelevant: still counts
-            Rule(2, 7, 2, 2, 30m, rowState: "D"),                  // soft-deleted: ignored
-            Rule(3, 7, 2, 3, 20m, rowState: "X"),                  // any other state: ignored
+            Rule(1, 7, 2, 1, 40m, active: false),
+            Rule(2, 7, 2, 2, 30m, active: true),
         };
 
         var described = ExecutionRuleConfiguration.Describe(7, 2, rules);
 
-        Assert.Equal(40m, described["actualWeightPercent"]);
-        Assert.Equal([1], Assert.IsType<List<ExecutionConflictRule>>(described["scoreRules"]).Select(r => r.ScoreRuleID));
+        Assert.Equal(70m, described["actualWeightPercent"]);
+        Assert.Equal([1, 2], Assert.IsType<List<ExecutionConflictRule>>(described["scoreRules"]).Select(r => r.ScoreRuleID));
     }
 
     [Fact]

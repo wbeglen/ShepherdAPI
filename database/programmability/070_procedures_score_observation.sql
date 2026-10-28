@@ -6,8 +6,8 @@
 --   1. Execution not found                         -> @ExecutionFound = 0 (the API maps this to its existing 404).
 --   2. ExperimentVersion locked                    -> THROW 50100 (version-locked).
 --   3. Rule belongs to another version or phase    -> THROW 50300 (version-phase-mismatch).
---   4. Rule not usable (RowState <> 'A')           -> THROW 50301 (unavailable-rule).
---   5. ObservedScore outside [MinScore, MaxScore]  -> THROW 50302 (out-of-range-score), inclusive bounds.
+--   4. ObservedScore outside [MinScore, MaxScore]  -> THROW 50302 (out-of-range-score), inclusive bounds.
+--   (50301, unavailable-rule, is retired with ScoreRule.RowState in Issue #7: every existing rule is usable.)
 --   A rule or rater that does not exist is left to the foreign key, which reports it as it always did (547).
 --   A duplicate (ExecutionID, ScoreRuleID, RaterID) is rejected by the existing unique constraint (2627).
 -- usp_UpdateScoreObservationContent: content only (ObservedScore, ObservedUTC, ObservationNotes); needs an
@@ -29,6 +29,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_CreateScoreObservation
     @ExecutionFound bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_CreateScoreObservation must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -68,8 +73,8 @@ BEGIN
         THROW 50100, @lockedMessage, 1;
     END
 
-    DECLARE @RuleVersionID bigint, @RulePhaseID int, @RuleState char(1), @MinScore int, @MaxScore int;
-    SELECT @RuleVersionID = ExperimentVersionID, @RulePhaseID = PhaseID, @RuleState = RowState,
+    DECLARE @RuleVersionID bigint, @RulePhaseID int, @MinScore int, @MaxScore int;
+    SELECT @RuleVersionID = ExperimentVersionID, @RulePhaseID = PhaseID,
            @MinScore = MinScore, @MaxScore = MaxScore
     FROM dbo.ScoreRule
     WHERE ScoreRuleID = @ScoreRuleID;
@@ -82,13 +87,6 @@ BEGIN
                 N'ScoreRule ', @ScoreRuleID, N' (version ', @RuleVersionID, N', phase ', @RulePhaseID,
                 N') does not match Execution ', @ExecutionID, N' (version ', @VersionID, N', phase ', @ExecutionPhaseID, N').');
             THROW 50300, @mismatchMessage, 1;
-        END
-
-        IF @RuleState <> 'A'
-        BEGIN
-            DECLARE @unavailableMessage nvarchar(2048) =
-                CONCAT(N'ScoreRule ', @ScoreRuleID, N' is not currently usable (RowState ', @RuleState, N').');
-            THROW 50301, @unavailableMessage, 1;
         END
 
         IF @ObservedScore < @MinScore OR @ObservedScore > @MaxScore
@@ -117,6 +115,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_UpdateScoreObservationContent
     @Found bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_UpdateScoreObservationContent must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 

@@ -5,9 +5,9 @@
 -- Order of checks:
 --   1. Iteration not found      -> returns @IterationFound = 0 (the API maps this to its existing 404).
 --   2. ExperimentVersion locked -> THROW 50100 (version-locked).
---   3. The phase's usable ScoreRules (RowState = 'A') must be non-empty and total exactly 100.00
+--   3. The phase's ScoreRules must be non-empty and total exactly 100.00
 --      -> THROW 50200 (invalid-rule-configuration).
--- Only RowState decides usability; ScoreRule.Active is deliberately ignored. Rules of other
+-- Every existing rule is usable (Issue #7); ScoreRule.Active is deliberately ignored. Rules of other
 -- versions or other phases never contribute. Re-runnable (CREATE OR ALTER).
 SET ANSI_NULLS ON
 GO
@@ -30,6 +30,11 @@ CREATE OR ALTER PROCEDURE dbo.usp_CreateExecution
     @IterationFound bit OUTPUT
 AS
 BEGIN
+    -- Issue #10: controlled-write procedures own their transaction and are called standalone. This must stay the first
+    -- statement, before SET XACT_ABORT ON: with XACT_ABORT ON the THROW would doom the caller's transaction.
+    IF @@TRANCOUNT > 0
+        THROW 50000, N'dbo.usp_CreateExecution must be called outside a transaction; it owns the transaction it begins.', 1;
+
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
 
@@ -67,13 +72,13 @@ BEGIN
     DECLARE @ruleCount int, @total decimal(38, 2);
     SELECT @ruleCount = COUNT(*), @total = SUM(WeightPercent)
     FROM dbo.ScoreRule
-    WHERE ExperimentVersionID = @VersionID AND PhaseID = @PhaseID AND RowState = 'A';
+    WHERE ExperimentVersionID = @VersionID AND PhaseID = @PhaseID;
 
     IF @ruleCount = 0 OR @total <> 100.00
     BEGIN
         DECLARE @ruleMessage nvarchar(2048) = CONCAT(
             N'ExperimentVersion ', @VersionID, N' phase ', @PhaseID, N' has ', @ruleCount,
-            N' active ScoreRule(s) totaling ', ISNULL(@total, 0), N'; exactly 100.00 is required to create an Execution.');
+            N' ScoreRule(s) totaling ', ISNULL(@total, 0), N'; exactly 100.00 is required to create an Execution.');
         THROW 50200, @ruleMessage, 1;
     END
 

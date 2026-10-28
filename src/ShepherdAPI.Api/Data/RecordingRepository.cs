@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using ShepherdAPI.Api.Infrastructure;
 using ShepherdAPI.Api.Models;
 
 namespace ShepherdAPI.Api.Data;
@@ -57,19 +58,21 @@ public class RecordingRepository(ISqlConnectionFactory connectionFactory) : IRec
         return parameters.Get<bool>("@IterationFound") ? parameters.Get<long?>("@ExecutionID") : null;
     }
 
-    public async Task<bool> UpdateExecutionRunFactsAsync(long id, string? modelUsed, string? interfaceUsed, int interventionCount, string? outcomeNotes, DateTime? endUtc)
-    {
-        using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            """
-            UPDATE dbo.Execution
-            SET ModelUsed = @modelUsed, InterfaceUsed = @interfaceUsed, InterventionCount = @interventionCount,
-                OutcomeNotes = @outcomeNotes, EndUTC = @endUtc
-            WHERE ExecutionID = @id;
-            """,
-            new { id, modelUsed, interfaceUsed, interventionCount, outcomeNotes, endUtc });
-        return rows > 0;
-    }
+    public Task<bool> UpdateExecutionRunFactsAsync(long id, string? modelUsed, string? interfaceUsed, int interventionCount, string? outcomeNotes, DateTime? endUtc) =>
+        DeadlockRetry.RunAsync(async () =>
+        {
+            using var connection = await connectionFactory.CreateOpenConnectionAsync();
+            var parameters = new DynamicParameters();
+            parameters.Add("@ExecutionID", id);
+            parameters.Add("@ModelUsed", modelUsed);
+            parameters.Add("@InterfaceUsed", interfaceUsed);
+            parameters.Add("@InterventionCount", interventionCount);
+            parameters.Add("@OutcomeNotes", outcomeNotes);
+            parameters.Add("@EndUTC", endUtc, DbType.DateTime2);
+            parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+            await connection.ExecuteAsync("dbo.usp_UpdateExecutionRunFacts", parameters, commandType: CommandType.StoredProcedure);
+            return parameters.Get<bool>("@Found");
+        });
 
     // -- Artifact -----------------------------------------------------------------
 
@@ -98,19 +101,26 @@ public class RecordingRepository(ISqlConnectionFactory connectionFactory) : IRec
             new { id });
     }
 
-    public async Task<long> CreateArtifactAsync(Artifact artifact)
-    {
-        using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        return await connection.QuerySingleAsync<long>(
-            """
-            INSERT INTO dbo.Artifact
-                (ExecutionID, ArtifactTypeID, OriginalName, OriginalURI, StoredURI, MimeType, ByteLength, SHA256, ReceivedUTC, StoredUTC)
-            VALUES
-                (@ExecutionID, @ArtifactTypeID, @OriginalName, @OriginalURI, @StoredURI, @MimeType, @ByteLength, @SHA256, @ReceivedUTC, @StoredUTC);
-            SELECT CAST(SCOPE_IDENTITY() AS bigint);
-            """,
-            artifact);
-    }
+    public Task<long?> CreateArtifactAsync(Artifact artifact) =>
+        DeadlockRetry.RunAsync(async () =>
+        {
+            using var connection = await connectionFactory.CreateOpenConnectionAsync();
+            var parameters = new DynamicParameters();
+            parameters.Add("@ExecutionID", artifact.ExecutionID);
+            parameters.Add("@ArtifactTypeID", artifact.ArtifactTypeID);
+            parameters.Add("@OriginalName", artifact.OriginalName);
+            parameters.Add("@OriginalURI", artifact.OriginalURI);
+            parameters.Add("@StoredURI", artifact.StoredURI);
+            parameters.Add("@MimeType", artifact.MimeType);
+            parameters.Add("@ByteLength", artifact.ByteLength);
+            parameters.Add("@SHA256", artifact.SHA256, DbType.AnsiString, size: 64);
+            parameters.Add("@ReceivedUTC", artifact.ReceivedUTC, DbType.DateTime2);
+            parameters.Add("@StoredUTC", artifact.StoredUTC, DbType.DateTime2);
+            parameters.Add("@ArtifactID", dbType: DbType.Int64, direction: ParameterDirection.Output);
+            parameters.Add("@ExecutionFound", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+            await connection.ExecuteAsync("dbo.usp_CreateArtifact", parameters, commandType: CommandType.StoredProcedure);
+            return parameters.Get<bool>("@ExecutionFound") ? parameters.Get<long?>("@ArtifactID") : null;
+        });
 
     // -- ScoreObservation -----------------------------------------------------------
 
@@ -185,20 +195,28 @@ public class RecordingRepository(ISqlConnectionFactory connectionFactory) : IRec
         return rows.AsList();
     }
 
-    public async Task CreateEvidenceLinkAsync(ScoreObservationEvidence link)
-    {
-        using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        await connection.ExecuteAsync(
-            "INSERT INTO dbo.ScoreObservationEvidence (ScoreObservationID, ArtifactID, EvidenceNotes) VALUES (@ScoreObservationID, @ArtifactID, @EvidenceNotes);",
-            link);
-    }
+    public Task<bool> CreateEvidenceLinkAsync(ScoreObservationEvidence link) =>
+        DeadlockRetry.RunAsync(async () =>
+        {
+            using var connection = await connectionFactory.CreateOpenConnectionAsync();
+            var parameters = new DynamicParameters();
+            parameters.Add("@ScoreObservationID", link.ScoreObservationID);
+            parameters.Add("@ArtifactID", link.ArtifactID);
+            parameters.Add("@EvidenceNotes", link.EvidenceNotes);
+            parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+            await connection.ExecuteAsync("dbo.usp_AddEvidence", parameters, commandType: CommandType.StoredProcedure);
+            return parameters.Get<bool>("@Found");
+        });
 
-    public async Task<bool> DeleteEvidenceLinkAsync(long scoreObservationId, long artifactId)
-    {
-        using var connection = await connectionFactory.CreateOpenConnectionAsync();
-        var rows = await connection.ExecuteAsync(
-            "DELETE FROM dbo.ScoreObservationEvidence WHERE ScoreObservationID = @scoreObservationId AND ArtifactID = @artifactId;",
-            new { scoreObservationId, artifactId });
-        return rows > 0;
-    }
+    public Task<bool> DeleteEvidenceLinkAsync(long scoreObservationId, long artifactId) =>
+        DeadlockRetry.RunAsync(async () =>
+        {
+            using var connection = await connectionFactory.CreateOpenConnectionAsync();
+            var parameters = new DynamicParameters();
+            parameters.Add("@ScoreObservationID", scoreObservationId);
+            parameters.Add("@ArtifactID", artifactId);
+            parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+            await connection.ExecuteAsync("dbo.usp_RemoveEvidence", parameters, commandType: CommandType.StoredProcedure);
+            return parameters.Get<bool>("@Found");
+        });
 }

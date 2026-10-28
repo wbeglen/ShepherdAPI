@@ -5,10 +5,9 @@
 --      update lock, and rejects the whole statement if any is locked (50100).
 --   3. Issue #4: rejects the whole statement if any owning version already has an Execution (50400,
 --      design-frozen). Checked after the lock, so it is serialized against Execution creation.
--- ScoreRule has one carve-out (Issue #4 soft-delete): setting RowState from 'A' to 'D' and changing
--- nothing else is allowed on a version that is NOT live. A version is live when it has an Execution and is
--- unlocked; for a locked version the A->D change is the only admitted write, and for an unlocked version the
--- freeze in step 3 applies like any other write.
+-- Issue #7: ScoreRule has no exceptions. Its rows are inserted, updated and physically deleted only while the
+-- version is unlocked and has no Execution; the foreign keys from ScoreObservation and ScoreObservationSnapshot
+-- additionally refuse the delete of any rule that is referenced.
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
@@ -78,9 +77,7 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) RETURN;
 
-    DECLARE @IsUpdate bit = IIF(EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted), 1, 0);
-
-    IF @IsUpdate = 1
+    IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted)
        AND EXISTS (SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID FROM inserted
                    EXCEPT
                    SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID FROM deleted)
@@ -92,45 +89,7 @@ BEGIN
         UNION
         SELECT ExperimentVersionID FROM deleted;
 
-    EXEC dbo.usp_LockVersions @Versions = @Owners;
-
-    DECLARE @Locked dbo.VersionIdList;
-    INSERT INTO @Locked (ExperimentVersionID)
-        SELECT ev.ExperimentVersionID
-        FROM dbo.ExperimentVersion AS ev
-        JOIN @Owners AS o ON o.ExperimentVersionID = ev.ExperimentVersionID
-        WHERE ev.LockedUTC IS NOT NULL;
-
-    -- A locked version admits only the soft-delete: an UPDATE whose every affected row goes
-    -- RowState 'A' -> 'D' with no other column changing. Inserts and deletes are always rejected.
-    IF EXISTS (SELECT 1 FROM @Locked)
-    BEGIN
-        IF @IsUpdate = 0
-            THROW 50100, N'ExperimentVersion is locked; ScoreRules cannot be inserted or deleted.', 1;
-
-        IF EXISTS
-        (
-            SELECT 1
-            FROM inserted AS i
-            JOIN deleted AS d ON d.ScoreRuleID = i.ScoreRuleID
-            WHERE i.ExperimentVersionID IN (SELECT ExperimentVersionID FROM @Locked)
-              AND NOT (    d.RowState = 'A'
-                       AND i.RowState = 'D'
-                       -- INTERSECT compares NULLs as equal, so a changed RuleNotes can never read as UNKNOWN.
-                       AND EXISTS (SELECT i.WeightPercent, i.MinScore, i.MaxScore, i.Active, i.RuleNotes
-                                   INTERSECT
-                                   SELECT d.WeightPercent, d.MinScore, d.MaxScore, d.Active, d.RuleNotes))
-        )
-            THROW 50100, N'ExperimentVersion is locked; the only permitted ScoreRule change is soft-deleting it (RowState A to D).', 1;
-    END
-
-    -- Unlocked owners: the design freeze applies to every write, the soft-delete included.
-    DECLARE @Unlocked dbo.VersionIdList;
-    INSERT INTO @Unlocked (ExperimentVersionID)
-        SELECT o.ExperimentVersionID
-        FROM @Owners AS o
-        WHERE NOT EXISTS (SELECT 1 FROM @Locked AS l WHERE l.ExperimentVersionID = o.ExperimentVersionID);
-
-    EXEC dbo.usp_AssertDesignNotFrozen @Unlocked;
+    EXEC dbo.usp_AssertVersionsUnlocked @Owners;
+    EXEC dbo.usp_AssertDesignNotFrozen @Owners;
 END
 GO

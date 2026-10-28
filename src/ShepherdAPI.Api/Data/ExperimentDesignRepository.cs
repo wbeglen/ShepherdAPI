@@ -36,8 +36,8 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return await connection.QuerySingleAsync<long>(
             """
             INSERT INTO dbo.ExperimentVersion (Name, VersionLabel, StatusID, EffectiveDateUTC, Description, LockedUTC)
-            OUTPUT INSERTED.ExperimentVersionID
             VALUES (@name, @versionLabel, @statusId, @effectiveDateUtc, @description, NULL);
+            SELECT CAST(SCOPE_IDENTITY() AS bigint);
             """,
             new { name, versionLabel, statusId, effectiveDateUtc, description });
     }
@@ -66,15 +66,41 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return rows > 0;
     }
 
-    public async Task<DateTime?> FinalizeExperimentVersionAsync(long id)
+    public async Task<DateTime?> FinalizeExperimentVersionAsync(long id, IReadOnlyList<(long ExecutionID, string Explanation)> unknownEnds)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
         var parameters = new DynamicParameters();
         parameters.Add("@ExperimentVersionID", id);
         parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
         parameters.Add("@LockedUTC", dbType: DbType.DateTime2, direction: ParameterDirection.Output);
+        if (unknownEnds.Count > 0)
+        {
+            // An omitted table-valued parameter is an empty table: the procedure's pre-V11 behavior.
+            var table = new DataTable();
+            table.Columns.Add("ExecutionID", typeof(long));
+            table.Columns.Add("Explanation", typeof(string));
+            foreach (var (executionId, explanation) in unknownEnds)
+            {
+                table.Rows.Add(executionId, explanation);
+            }
+
+            parameters.Add("@UnknownEnds", table.AsTableValuedParameter("dbo.FinalizationExceptionList"));
+        }
+
         await connection.ExecuteAsync("dbo.usp_FinalizeExperimentVersion", parameters, commandType: CommandType.StoredProcedure);
         return parameters.Get<bool>("@Found") ? parameters.Get<DateTime?>("@LockedUTC") : null;
+    }
+
+    public async Task<IReadOnlyList<FinalizationException>> GetFinalizationExceptionsAsync(long experimentVersionId)
+    {
+        using var connection = await connectionFactory.CreateOpenConnectionAsync();
+        var rows = await connection.QueryAsync<FinalizationException>(
+            """
+            SELECT ExperimentVersionID, ExecutionID, ExceptionCode, Explanation, RecordedUTC
+            FROM dbo.FinalizationException WHERE ExperimentVersionID = @experimentVersionId ORDER BY ExecutionID, ExceptionCode;
+            """,
+            new { experimentVersionId });
+        return rows.AsList();
     }
 
     // -- Iteration ------------------------------------------------------------
@@ -211,10 +237,10 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
         var rows = await connection.QueryAsync<ScoreRule>(
             """
-            SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes, RowState
-            FROM dbo.ScoreRule WHERE ExperimentVersionID = @experimentVersionId AND RowState = @active ORDER BY PhaseID, ScoreCategoryID;
+            SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes
+            FROM dbo.ScoreRule WHERE ExperimentVersionID = @experimentVersionId ORDER BY PhaseID, ScoreCategoryID;
             """,
-            new { experimentVersionId, active = RowState.Active });
+            new { experimentVersionId });
         return rows.AsList();
     }
 
@@ -223,7 +249,7 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
         return await connection.QuerySingleOrDefaultAsync<ScoreRule>(
             """
-            SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes, RowState
+            SELECT ScoreRuleID, ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active, RuleNotes
             FROM dbo.ScoreRule WHERE ScoreRuleID = @id;
             """,
             new { id });
@@ -247,13 +273,28 @@ public class ExperimentDesignRepository(ISqlConnectionFactory connectionFactory)
         return parameters.Get<bool>("@VersionFound") ? parameters.Get<int?>("@ScoreRuleID") : null;
     }
 
-    public async Task<bool> SoftDeleteScoreRuleAsync(int id)
+    public async Task<bool> UpdateScoreRuleAsync(ScoreRule scoreRule)
+    {
+        using var connection = await connectionFactory.CreateOpenConnectionAsync();
+        var parameters = new DynamicParameters();
+        parameters.Add("@ScoreRuleID", scoreRule.ScoreRuleID);
+        parameters.Add("@WeightPercent", scoreRule.WeightPercent, DbType.Decimal, precision: 5, scale: 2);
+        parameters.Add("@MinScore", scoreRule.MinScore);
+        parameters.Add("@MaxScore", scoreRule.MaxScore);
+        parameters.Add("@Active", scoreRule.Active);
+        parameters.Add("@RuleNotes", scoreRule.RuleNotes);
+        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+        await connection.ExecuteAsync("dbo.usp_UpdateScoreRule", parameters, commandType: CommandType.StoredProcedure);
+        return parameters.Get<bool>("@Found");
+    }
+
+    public async Task<bool> DeleteScoreRuleAsync(int id)
     {
         using var connection = await connectionFactory.CreateOpenConnectionAsync();
         var parameters = new DynamicParameters();
         parameters.Add("@ScoreRuleID", id);
         parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
-        await connection.ExecuteAsync("dbo.usp_SoftDeleteScoreRule", parameters, commandType: CommandType.StoredProcedure);
+        await connection.ExecuteAsync("dbo.usp_DeleteScoreRule", parameters, commandType: CommandType.StoredProcedure);
         return parameters.Get<bool>("@Found");
     }
 }

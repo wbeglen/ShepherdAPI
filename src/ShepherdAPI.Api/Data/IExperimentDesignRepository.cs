@@ -18,11 +18,15 @@ public interface IExperimentDesignRepository
     Task<bool> SetExperimentVersionStatusAsync(long id, int statusId);
 
     /// <summary>
-    /// Runs dbo.usp_FinalizeExperimentVersion: snapshots every ScoreObservation and sets LockedUTC in one
-    /// transaction. Returns the database-generated LockedUTC, or null if the version does not exist. Failed
-    /// checks surface as the SqlExceptions the procedure throws (catalog errors 50100 and 50500-50507).
+    /// Runs dbo.usp_FinalizeExperimentVersion: snapshots every ScoreObservation, records each accepted unknown end as a
+    /// FinalizationException, and sets LockedUTC in one transaction. Returns the database-generated LockedUTC, or null
+    /// if the version does not exist. Failed checks surface as the SqlExceptions the procedure throws (catalog errors
+    /// 50100, 50500-50507 and 50510).
     /// </summary>
-    Task<DateTime?> FinalizeExperimentVersionAsync(long id);
+    Task<DateTime?> FinalizeExperimentVersionAsync(long id, IReadOnlyList<(long ExecutionID, string Explanation)> unknownEnds);
+
+    /// <summary>The version's FinalizationException rows, by ExecutionID (empty when it has none).</summary>
+    Task<IReadOnlyList<FinalizationException>> GetFinalizationExceptionsAsync(long experimentVersionId);
 
     // Iteration
     Task<IReadOnlyList<Iteration>> GetIterationsByExperimentVersionAsync(long experimentVersionId);
@@ -38,19 +42,14 @@ public interface IExperimentDesignRepository
     Task<bool> UpdateParameterAsync(Parameter parameter);
     Task<bool> DeleteParameterAsync(long id);
 
-    // ScoreRule — add/delete-only lifecycle; definitions are immutable after creation (no update).
-    /// <summary>Active (RowState = 'A') rules only — the normal selection list.</summary>
+    // ScoreRule (Issue #7) — create, update of the non-key fields, and physical delete, like Parameter.
     Task<IReadOnlyList<ScoreRule>> GetScoreRulesByExperimentVersionAsync(long experimentVersionId);
-
-    /// <summary>Resolves a rule regardless of RowState, for historical/internal resolution of existing references.</summary>
     Task<ScoreRule?> GetScoreRuleAsync(int id);
-
-    /// <summary>Always creates an Active rule — RowState is left to the database default ('A').</summary>
     Task<int?> CreateScoreRuleAsync(ScoreRule scoreRule);
 
-    /// <summary>
-    /// The dedicated soft-delete (Issue #4): sets RowState = 'D' and nothing else. Throws the design-frozen,
-    /// already-deleted or invalid-RowState error per the procedure's precedence; false if the rule does not exist.
-    /// </summary>
-    Task<bool> SoftDeleteScoreRuleAsync(int id);
+    /// <summary>Runs dbo.usp_UpdateScoreRule: WeightPercent, MinScore, MaxScore, Active and RuleNotes only.</summary>
+    Task<bool> UpdateScoreRuleAsync(ScoreRule scoreRule);
+
+    /// <summary>Runs dbo.usp_DeleteScoreRule: a physical delete. A referenced rule is refused by its foreign keys.</summary>
+    Task<bool> DeleteScoreRuleAsync(int id);
 }

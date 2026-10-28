@@ -5,7 +5,7 @@ namespace ShepherdAPI.Api.Services;
 
 /// <summary>
 /// Explains an invalid-rule-configuration refusal (Issue #1). The check itself lives in
-/// dbo.usp_CreateExecution; this only describes the phase's usable (RowState 'A') rules so the client
+/// dbo.usp_CreateExecution; this only describes the phase's rules so the client
 /// can show what is wrong. ScoreRule.Active plays no part, and rules of other versions or phases are ignored.
 /// </summary>
 public static class ExecutionRuleConfiguration
@@ -15,11 +15,8 @@ public static class ExecutionRuleConfiguration
     /// <summary>The extension members written into the 409 body; their names match <see cref="ExecutionConflictProblem"/>.</summary>
     public static IReadOnlyDictionary<string, object?> Describe(long experimentVersionId, int phaseId, IEnumerable<ScoreRule> rules)
     {
-        var active = RowState.Active.ToString();
         var phaseRules = rules
-            .Where(r => r.ExperimentVersionID == experimentVersionId
-                        && r.PhaseID == phaseId
-                        && string.Equals(r.RowState, active, StringComparison.OrdinalIgnoreCase))
+            .Where(r => r.ExperimentVersionID == experimentVersionId && r.PhaseID == phaseId)
             .OrderBy(r => r.ScoreCategoryID)
             .ToList();
 

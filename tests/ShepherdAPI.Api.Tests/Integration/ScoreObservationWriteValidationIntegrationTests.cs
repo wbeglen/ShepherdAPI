@@ -20,14 +20,14 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
 {
     private static int _sequence = 40000;
 
-    private sealed record Ctx(long Version, long Iteration, long Execution, int Rule, int RetiredRule, int OtherStateRule, int OtherPhase, int OtherPhaseRule);
+    private sealed record Ctx(long Version, long Iteration, long Execution, int Rule, int DeletedRule, int OtherPhase, int OtherPhaseRule);
 
     private ExperimentDesignService Design() => new(new ExperimentDesignRepository(fixture.ConnectionFactory));
 
     private RecordingService Recording(ISqlConnectionFactory? factory = null)
     {
         var f = factory ?? fixture.ConnectionFactory;
-        return new RecordingService(new RecordingRepository(f), new ExperimentDesignRepository(f), new LockGuardQueries(f));
+        return new RecordingService(new RecordingRepository(f), new ExperimentDesignRepository(f));
     }
 
     private async Task<T> ScalarAsync<T>(string sql, object? parameters = null)
@@ -68,18 +68,16 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         })).ScoreRuleID;
 
     /// <summary>
-    /// A version whose phase rules total 100 (so an Execution can be created), plus a retired rule, a rule in an
-    /// unrecognized RowState ('X') and a rule in another phase, all set up before the Execution exists: the design
-    /// is frozen by the first Execution (Issue #4), so nothing about the rules can be arranged afterwards.
+    /// A version whose phase rules total 100 (so an Execution can be created), plus a deleted rule and a rule in
+    /// another phase, all set up before the Execution exists: the design is frozen by the first Execution (Issue #4),
+    /// so nothing about the rules can be arranged afterwards.
     /// </summary>
     private async Task<Ctx> SetupAsync(int min = 0, int max = 5, bool ruleActive = true)
     {
         var version = await NewVersionAsync();
         var rule = await NewRuleAsync(version, fixture.PhaseId, 100m, min, max, ruleActive);
-        var retired = await NewRuleAsync(version, fixture.PhaseId, 0m, min, max);
-        await Design().DeleteScoreRuleAsync(retired);
-        var otherState = await NewRuleAsync(version, fixture.PhaseId, 0m, min, max);
-        await ExecAsync($"UPDATE dbo.ScoreRule SET RowState = 'X' WHERE ScoreRuleID = {otherState};");
+        var deleted = await NewRuleAsync(version, fixture.PhaseId, 0m, min, max);
+        await Design().DeleteScoreRuleAsync(deleted);
         var otherPhase = await NewPhaseAsync();
         var otherPhaseRule = await NewRuleAsync(version, otherPhase, 40m);
 
@@ -92,7 +90,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
             IterationID = iteration.IterationID, AgentID = fixture.AgentId, PhaseID = fixture.PhaseId, StatusID = fixture.DraftStatusId,
             StartUTC = DateTime.UtcNow, AttemptNumber = 1,
         });
-        return new Ctx(version, iteration.IterationID, execution.ExecutionID, rule, retired, otherState, otherPhase, otherPhaseRule);
+        return new Ctx(version, iteration.IterationID, execution.ExecutionID, rule, deleted, otherPhase, otherPhaseRule);
     }
 
     private CreateScoreObservationRequest Obs(long execution, int rule, decimal score, int? rater = null) => new()
@@ -103,8 +101,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
     private Task<int> ObservationCountAsync(long execution) =>
         ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreObservation WHERE ExecutionID = @execution;", new { execution });
 
-    private Task LockAsync(long version) =>
-        ExecAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {version};");
+    private Task LockAsync(long version) => LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, version);
 
     private static async Task AssertRejectedAsync(Func<Task> write, int sqlNumber, int httpStatus, string code)
     {
@@ -188,22 +185,14 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
     }
 
     [Fact]
-    public async Task ARetiredRule_CannotBeSelectedForANewObservation()
+    public async Task ADeletedRule_CannotBeSelectedForANewObservation()
     {
         var c = await SetupAsync();
 
-        await AssertRejectedAsync(() => Recording().CreateScoreObservationAsync(Obs(c.Execution, c.RetiredRule, 3m)),
-            ErrorCatalog.UnavailableRule.SqlNumber!.Value, 409, "unavailable-rule");
+        // The rule no longer exists, so the foreign key refuses the observation, as for any unknown rule.
+        await AssertRejectedAsync(() => Recording().CreateScoreObservationAsync(Obs(c.Execution, c.DeletedRule, 3m)),
+            SqlErrorMapper.ForeignKeyViolation, 409, ErrorCatalog.ConstraintViolation.Code);
         Assert.Equal(0, await ObservationCountAsync(c.Execution));
-    }
-
-    [Fact]
-    public async Task OnlyRowStateA_IsUsable_AnyOtherStateIsUnavailable()
-    {
-        var c = await SetupAsync();
-
-        await AssertRejectedAsync(() => Recording().CreateScoreObservationAsync(Obs(c.Execution, c.OtherStateRule, 3m)),
-            ErrorCatalog.UnavailableRule.SqlNumber!.Value, 409, "unavailable-rule");
     }
 
     [Fact]
@@ -391,8 +380,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         await Task.Delay(500);
         Assert.False(write.IsCompleted, "the write must wait behind the finalization's exclusive lock");
 
-        await finalizer.ExecuteAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {c.Version};",
-            transaction: finalizerTransaction);
+        await LockedUtcTestHelper.LockAsync(finalizer, c.Version, finalizerTransaction);
         finalizerTransaction.Commit();
 
         var rejected = await Assert.ThrowsAsync<SqlException>(() => write.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -415,8 +403,7 @@ public class ScoreObservationWriteValidationIntegrationTests(DatabaseFixture fix
         await Task.Delay(500);
         Assert.False(write.IsCompleted);
 
-        await finalizer.ExecuteAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {c.Version};",
-            transaction: finalizerTransaction);
+        await LockedUtcTestHelper.LockAsync(finalizer, c.Version, finalizerTransaction);
         finalizerTransaction.Commit();
 
         var rejected = await Assert.ThrowsAsync<SqlException>(() => write.WaitAsync(TimeSpan.FromSeconds(10)));

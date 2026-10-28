@@ -26,7 +26,7 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
     private ExperimentDesignService Design() => new(new ExperimentDesignRepository(fixture.ConnectionFactory));
 
     private RecordingService Recording() =>
-        new(new RecordingRepository(fixture.ConnectionFactory), new ExperimentDesignRepository(fixture.ConnectionFactory), new LockGuardQueries(fixture.ConnectionFactory));
+        new(new RecordingRepository(fixture.ConnectionFactory), new ExperimentDesignRepository(fixture.ConnectionFactory));
 
     // ---------------------------------------------------------------- helpers
 
@@ -303,9 +303,19 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
 
         // A later category edit does not change the HigherIsBetter copied into the snapshot...
         await ExecAsync("UPDATE dbo.ScoreCategory SET HigherIsBetter = 1 - HigherIsBetter WHERE ScoreCategoryID IN (@a, @b);", new { a = f.CategoryA1, b = f.CategoryA2 });
-        // ...and neither does retiring the originating rule after lock (the soft-delete is the one admitted post-lock write).
-        await Design().DeleteScoreRuleAsync(f.RuleA2);
-        Assert.Equal("D", (await Design().GetScoreRuleAsync(f.RuleA2)).RowState.Trim());
+        // ...and the originating rule cannot change after finalization (#7: no post-lock exception)...
+        var update = await Assert.ThrowsAsync<SqlException>(() => Design().UpdateScoreRuleAsync(f.RuleA2, new UpdateScoreRuleRequest { WeightPercent = 1m, MinScore = 0, MaxScore = 5 }));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, update.Number);
+        var delete = await Assert.ThrowsAsync<SqlException>(() => Design().DeleteScoreRuleAsync(f.RuleA2));
+        Assert.Equal(ErrorCatalog.VersionLocked.SqlNumber, delete.Number);
+
+        // ...nor be deleted even with the guard trigger bypassed: the observation and snapshot foreign keys keep it.
+        await WithTriggerDisabledAsync("ScoreRule", "trg_ScoreRule_Guard", async () =>
+        {
+            var raw = await Assert.ThrowsAsync<SqlException>(() => ExecAsync("DELETE dbo.ScoreRule WHERE ScoreRuleID = @r;", new { r = f.RuleA2 }));
+            Assert.Equal(547, raw.Number);
+        });
+        Assert.Equal(40m, (await Design().GetScoreRuleAsync(f.RuleA2)).WeightPercent);
 
         var after = await Rows();
         Assert.Equal(before.Count, after.Count);
@@ -315,7 +325,7 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
                          (a.ScoreRuleID, a.ScoreCategoryID, a.ObservedScore, a.MinScore, a.MaxScore, a.WeightPercent, a.HigherIsBetter, a.SnapshotUTC));
         }
 
-        Assert.Contains(after, r => r.ScoreRuleID == f.RuleA2); // membership unchanged although the rule is now 'D'
+        Assert.Contains(after, r => r.ScoreRuleID == f.RuleA2);
     }
 
     [Fact]
@@ -425,10 +435,11 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
     {
         var f = await BuildAsync();
 
-        // Normal flow cannot reach this state (a live version's rules cannot be retired), so retire phase B's only
-        // rule behind the guard trigger's back.
+        // Normal flow cannot reach this state (a live version's rules cannot change), and phase B's only rule is
+        // observed, so it cannot be deleted either: move it to an unused phase behind the guard trigger's back.
+        var unusedPhase = await NewPhaseAsync();
         await WithTriggerDisabledAsync("ScoreRule", "trg_ScoreRule_Guard",
-            () => ExecAsync("UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = @r;", new { r = f.RuleB }));
+            () => ExecAsync("UPDATE dbo.ScoreRule SET PhaseID = @p WHERE ScoreRuleID = @r;", new { p = unusedPhase, r = f.RuleB }));
 
         var body = await FailsAsync(f.Version, "finalize-execution-phase-not-configured");
 
@@ -592,6 +603,63 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
     }
 
     [Fact]
+    public async Task AFailureDuringTheSnapshotInsert_RollsBackEverything_AndClearsTheToken()
+    {
+        var f = await BuildAsync();
+
+        // A test-only trigger makes the snapshot insert itself fail, while the finalization token is set.
+        await ExecAsync("""
+            CREATE OR ALTER TRIGGER dbo.trg_TestFailSnapshot ON dbo.ScoreObservationSnapshot AFTER INSERT AS
+            BEGIN
+                THROW 59998, N'forced failure during the snapshot insert', 1;
+            END
+            """);
+        try
+        {
+            using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
+            var parameters = new DynamicParameters();
+            parameters.Add("@ExperimentVersionID", f.Version);
+            parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
+            parameters.Add("@LockedUTC", dbType: DbType.DateTime2, direction: ParameterDirection.Output);
+            var ex = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync("dbo.usp_FinalizeExperimentVersion", parameters, commandType: CommandType.StoredProcedure));
+
+            Assert.Equal(59998, ex.Number);
+            Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT @@TRANCOUNT;"));
+            Assert.Null(await connection.QuerySingleAsync<long?>("SELECT TRY_CONVERT(bigint, SESSION_CONTEXT(N'ShepherdAPI.FinalizingVersionID'));"));
+        }
+        finally
+        {
+            await ExecAsync("DROP TRIGGER IF EXISTS dbo.trg_TestFailSnapshot;");
+        }
+
+        Assert.Equal(0, await SnapshotCountAsync(f.Version));
+        Assert.Null(await LockedUtcAsync(f.Version));
+        await FinalizeAsync(f.Version);
+        Assert.Equal(6, await SnapshotCountAsync(f.Version));
+    }
+
+    [Fact]
+    public async Task TheLockedUtcUpdate_IsAuthorizedByTheTokenInsideFinalization_AndByNothingElse()
+    {
+        var f = await BuildAsync();
+
+        // Nothing but finalization can lock a finalizable version: a raw assignment without the key is refused...
+        using (var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync())
+        {
+            var ex = await Assert.ThrowsAsync<SqlException>(() => connection.ExecuteAsync(
+                "UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = @v;", new { v = f.Version }));
+            Assert.Equal(50509, ex.Number);
+        }
+
+        Assert.Null(await LockedUtcAsync(f.Version));
+
+        // ...while finalization itself locks it, with the snapshot, and leaves the key NULL on its connection.
+        var finalized = await FinalizeAsync(f.Version);
+        Assert.Equal(finalized.LockedUTC, await LockedUtcAsync(f.Version));
+        Assert.Equal(6, await SnapshotCountAsync(f.Version));
+    }
+
+    [Fact]
     public async Task TheToken_IsClearedAfterSuccessAndAfterAFailedCheck()
     {
         var failing = await BuildAsync(endExecutions: false);
@@ -609,9 +677,11 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
 
         await Assert.ThrowsAsync<SqlException>(() => Run(failing.Version));
         Assert.Null(await connection.QuerySingleAsync<long?>("SELECT TRY_CONVERT(bigint, SESSION_CONTEXT(N'ShepherdAPI.FinalizingVersionID'));"));
+        Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT @@TRANCOUNT;")); // no procedure-owned transaction left open
 
         await Run(good.Version);
         Assert.Null(await connection.QuerySingleAsync<long?>("SELECT TRY_CONVERT(bigint, SESSION_CONTEXT(N'ShepherdAPI.FinalizingVersionID'));"));
+        Assert.Equal(0, await connection.QuerySingleAsync<int>("SELECT @@TRANCOUNT;"));
     }
 
     // ---------------------------------------------------------------- snapshot immutability and insert control
@@ -696,7 +766,7 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
     {
         var f = await BuildAsync();
         var o = f.Observations[0];
-        await ExecAsync("UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = @v;", new { v = f.Version });
+        await LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, f.Version);
 
         using var connection = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
         await connection.ExecuteAsync($"EXEC sys.sp_set_session_context @key = N'ShepherdAPI.FinalizingVersionID', @value = {f.Version};");
@@ -791,14 +861,12 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
         var f = await BuildAsync();
         var newRater = await NewRaterAsync();
 
-        // Finalization is running (its transaction is held open by an enclosing transaction) and owns the exclusive lock.
+        // A finalizer holds the exclusive lock. The controlled-write procedures must be called standalone (Issue #10),
+        // so the lock is held directly, exactly as usp_FinalizeExperimentVersion takes it; the version is locked inside
+        // that transaction the way finalization locks it (with the token helper from Issue #9).
         using var finalizer = await fixture.ConnectionFactory.CreateOpenConnectionAsync();
         using var finalizerTransaction = finalizer.BeginTransaction();
-        var parameters = new DynamicParameters();
-        parameters.Add("@ExperimentVersionID", f.Version);
-        parameters.Add("@Found", dbType: DbType.Boolean, direction: ParameterDirection.Output);
-        parameters.Add("@LockedUTC", dbType: DbType.DateTime2, direction: ParameterDirection.Output);
-        await finalizer.ExecuteAsync("dbo.usp_FinalizeExperimentVersion", parameters, finalizerTransaction, commandType: CommandType.StoredProcedure);
+        await AcquireAsync(finalizer, finalizerTransaction, f.Version, exclusive: true);
 
         var writes = new Func<Task>[]
         {
@@ -813,6 +881,7 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
         // The parameter delete targets a missing row, so it fails fast with 404; every other write must be waiting.
         Assert.Equal(4, writes.Count(t => !t.IsCompleted));
 
+        await LockedUtcTestHelper.LockAsync(finalizer, f.Version, finalizerTransaction);
         finalizerTransaction.Commit();
 
         foreach (var write in writes)
@@ -831,9 +900,9 @@ public class FinalizationIntegrationTests(DatabaseFixture fixture)
             }
         }
 
-        Assert.Equal(6, await SnapshotCountAsync(f.Version));
         Assert.Equal(0, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ScoreObservation WHERE RaterID = @r;", new { r = newRater }));
         Assert.Equal(3, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Execution WHERE IterationID = @i;", new { i = f.Iteration }));
+        Assert.Equal(1, await ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ExperimentVersion WHERE ExperimentVersionID = @v AND LockedUTC IS NOT NULL;", new { v = f.Version }));
     }
 
     [Fact]

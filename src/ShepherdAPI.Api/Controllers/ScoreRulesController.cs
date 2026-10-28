@@ -6,10 +6,9 @@ using ShepherdAPI.Api.Services;
 namespace ShepherdAPI.Api.Controllers;
 
 /// <summary>
-/// ScoreRule has an add/delete-only lifecycle — definitions are immutable after creation, so
-/// there is deliberately no PUT/PATCH endpoint. GetAll returns only Active (RowState = 'A')
-/// rules; GetById resolves regardless of RowState so historical ScoreObservation references
-/// to a retired rule keep working.
+/// ScoreRules are created, updated and physically deleted only while their version is unlocked and has no
+/// Execution (Issue #7); otherwise each write is 409 version-locked or design-frozen. Once an Execution exists
+/// the rules are fixed for good, so every rule a ScoreObservation or snapshot refers to still exists.
 /// </summary>
 [ApiController]
 [Route("api/score-rules")]
@@ -33,12 +32,18 @@ public class ScoreRulesController(IExperimentDesignService service) : Controller
         return CreatedAtAction(nameof(GetById), new { id = created.ScoreRuleID }, created);
     }
 
+    /// <summary>Replaces WeightPercent, MinScore, MaxScore, Active and RuleNotes. The version, phase and category never change.</summary>
+    [ProducesResponseType(typeof(ScoreRule), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [HttpPut("{id:int}")]
+    public async Task<ActionResult<ScoreRule>> Update(int id, UpdateScoreRuleRequest request) =>
+        Ok(await service.UpdateScoreRuleAsync(id, request));
+
     /// <summary>
-    /// The dedicated ScoreRule soft-delete: changes only RowState ('A' to 'D') and returns 204. The row is never
-    /// physically deleted, so historical references stay valid. Not idempotent: an already-deleted rule is 409
-    /// score-rule-already-deleted and any other RowState is 409 score-rule-invalid-rowstate. A live version (it has
-    /// Executions and is not locked) is 409 design-frozen; this is checked before RowState. A version with no
-    /// Executions, or a locked one, permits the delete.
+    /// Physically deletes the rule (204), freeing its version/phase/category combination for a new rule. A deleted
+    /// rule no longer exists, so deleting it again is 404.
     /// </summary>
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

@@ -39,7 +39,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
     {
         var designRepository = new ExperimentDesignRepository(fixture.ConnectionFactory);
         var design = new ExperimentDesignService(designRepository);
-        var recording = new RecordingService(new RecordingRepository(fixture.ConnectionFactory), designRepository, new LockGuardQueries(fixture.ConnectionFactory));
+        var recording = new RecordingService(new RecordingRepository(fixture.ConnectionFactory), designRepository);
 
         async Task<long> NewVersion(string tag) => (await design.CreateExperimentVersionAsync(new CreateExperimentVersionRequest
         {
@@ -142,8 +142,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         await connection.ExecuteAsync(sql);
     }
 
-    private Task LockAsync(long version) =>
-        ExecAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {version};");
+    private Task LockAsync(long version) => LockedUtcTestHelper.LockAsync(fixture.ConnectionFactory, version);
 
     /// <summary>Runs the SQL, expecting it to be rejected with the given THROW number, and checks the API-level mapping.</summary>
     private async Task RejectedAsync(string sql, int number)
@@ -431,10 +430,10 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
             """);
     }
 
-    // ---------------------------------------------------------------- ScoreRule soft-delete carve-out
+    // ---------------------------------------------------------------- ScoreRule on a locked version (#7: no carve-out)
 
     [Fact]
-    public async Task ScoreRule_OnALockedVersion_AdmitsOnlyTheSoftDelete()
+    public async Task ScoreRule_OnALockedVersion_AdmitsNoWriteAtAll()
     {
         var c = await BuildAsync();
         var designRepository = new ExperimentDesignRepository(fixture.ConnectionFactory);
@@ -450,29 +449,20 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         var r3 = await Rule(c.Category3);
         await LockAsync(c.VersionC);
 
-        async Task<string> State(int id) => (await ScalarAsync<string>($"SELECT RowState FROM dbo.ScoreRule WHERE ScoreRuleID = {id};")).Trim();
-
-        // The permitted change: RowState 'A' -> 'D', nothing else.
-        await ExecAsync($"UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID = {r1};");
-        Assert.Equal("D", await State(r1));
-
-        // Everything else stays prohibited.
-        await RejectedAsync($"UPDATE dbo.ScoreRule SET RowState = 'A' WHERE ScoreRuleID = {r1};", VersionLocked);
+        // Raw writes: insert, update of any column, single and multirow delete.
         await RejectedAsync($"UPDATE dbo.ScoreRule SET WeightPercent = 1 WHERE ScoreRuleID = {r2};", VersionLocked);
-        await RejectedAsync($"UPDATE dbo.ScoreRule SET RowState = 'X' WHERE ScoreRuleID = {r2};", VersionLocked);
-        await RejectedAsync($"UPDATE dbo.ScoreRule SET RowState = 'D', RuleNotes = N'extra' WHERE ScoreRuleID = {r2};", VersionLocked);
+        await RejectedAsync($"UPDATE dbo.ScoreRule SET RuleNotes = N'extra' WHERE ScoreRuleID = {r2};", VersionLocked);
         await RejectedAsync($"INSERT dbo.ScoreRule (ExperimentVersionID, PhaseID, ScoreCategoryID, WeightPercent, MinScore, MaxScore, Active) VALUES ({c.VersionC}, {fixture.PhaseId}, {c.Category4}, 10, 0, 5, 1);", VersionLocked);
-        await RejectedAsync($"DELETE dbo.ScoreRule WHERE ScoreRuleID = {r2};", VersionLocked);
-        Assert.Equal("A", await State(r2));
+        await RejectedAsync($"DELETE dbo.ScoreRule WHERE ScoreRuleID = {r1};", VersionLocked);
+        await RejectedAsync($"DELETE dbo.ScoreRule WHERE ScoreRuleID IN ({r2}, {r3});", VersionLocked);
 
-        // A multirow update is all-or-nothing: r1 is already 'D', so it is not an A -> D change and sinks the whole statement.
-        await RejectedAsync($"UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID IN ({r1}, {r2});", VersionLocked);
-        Assert.Equal("A", await State(r2));
+        // The controlled-write procedures report the same error.
+        var update = await Assert.ThrowsAsync<SqlException>(() => design.UpdateScoreRuleAsync(r1, new UpdateScoreRuleRequest { WeightPercent = 1m, MinScore = 0, MaxScore = 5 }));
+        Assert.Equal(VersionLocked, update.Number);
+        var delete = await Assert.ThrowsAsync<SqlException>(() => design.DeleteScoreRuleAsync(r1));
+        Assert.Equal(VersionLocked, delete.Number);
 
-        // When every row is eligible, the multirow soft-delete goes through.
-        await ExecAsync($"UPDATE dbo.ScoreRule SET RowState = 'D' WHERE ScoreRuleID IN ({r2}, {r3});");
-        Assert.Equal("D", await State(r2));
-        Assert.Equal("D", await State(r3));
+        Assert.Equal(3, await ScalarAsync<int>($"SELECT COUNT(*) FROM dbo.ScoreRule WHERE ScoreRuleID IN ({r1}, {r2}, {r3}) AND WeightPercent = 25 AND RuleNotes IS NULL;"));
     }
 
     // ---------------------------------------------------------------- the lock protocol
@@ -587,7 +577,7 @@ public class LockGuardIntegrationTests(DatabaseFixture fixture)
         await Task.Delay(500);
         Assert.False(lateWriter.IsCompleted, "the writer must wait behind the exclusive lock");
 
-        await finalizer.ExecuteAsync($"UPDATE dbo.ExperimentVersion SET LockedUTC = SYSUTCDATETIME() WHERE ExperimentVersionID = {c.VersionA};", transaction: finalizerTransaction);
+        await LockedUtcTestHelper.LockAsync(finalizer, c.VersionA, finalizerTransaction);
         finalizerTransaction.Commit();
 
         var rejected = await Assert.ThrowsAsync<SqlException>(() => lateWriter.WaitAsync(TimeSpan.FromSeconds(10)));

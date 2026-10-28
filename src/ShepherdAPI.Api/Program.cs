@@ -23,7 +23,6 @@ builder.Services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
 builder.Services.AddScoped<ILookupRepository, LookupRepository>();
 builder.Services.AddScoped<IExperimentDesignRepository, ExperimentDesignRepository>();
 builder.Services.AddScoped<IRecordingRepository, RecordingRepository>();
-builder.Services.AddScoped<ILockGuardQueries, LockGuardQueries>();
 builder.Services.AddScoped<IExperimentDesignService, ExperimentDesignService>();
 builder.Services.AddScoped<IRecordingService, RecordingService>();
 

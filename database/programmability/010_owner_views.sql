@@ -30,6 +30,12 @@ SELECT s.ExperimentVersionID, s.ExecutionID, s.PhaseID, s.ScoreCategoryID, s.Sco
 FROM dbo.ScoreObservationSnapshot AS s;
 GO
 
+-- V11 (upgrade/002 creates the table).
+CREATE OR ALTER VIEW dbo.vOwnerFinalizationException AS
+SELECT fe.ExecutionID, fe.ExceptionCode, fe.ExperimentVersionID
+FROM dbo.FinalizationException AS fe;
+GO
+
 -- Indirect owners.
 CREATE OR ALTER VIEW dbo.vOwnerExecution AS
 SELECT e.ExecutionID, i.ExperimentVersionID

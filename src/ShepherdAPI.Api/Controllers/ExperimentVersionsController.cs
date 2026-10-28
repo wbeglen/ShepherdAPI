@@ -47,11 +47,25 @@ public class ExperimentVersionsController(IExperimentDesignService service) : Co
     /// ScoreObservationSnapshot and sets LockedUTC. Irreversible. The optional StatusID in the request is ignored.
     /// Returns 409 version-locked if already locked, or a 409 naming the failed completeness or integrity check
     /// (and the offending Executions, phases or observations) if the version is not ready.
+    /// UnknownEnds (V11) accepts Executions whose end time is unknown, each with a mandatory explanation; each becomes an
+    /// immutable FinalizationException committed with the lock. 400 for a malformed list; 409
+    /// finalize-unknown-end-invalid if a named Execution is not this version's or already has an EndUTC.
     /// </summary>
     [HttpPost("{id:long}/lock")]
     [ProducesResponseType(typeof(ExperimentVersion), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ExperimentVersion>> Lock(long id, LockExperimentVersionRequest request) =>
         Ok(await service.LockExperimentVersionAsync(id, request));
+
+    /// <summary>
+    /// The exceptions accepted when this version was finalized (V11): one per Execution whose end time was unknown, with
+    /// the explanation given then. Empty for a version without any, including every unlocked version. Read-only.
+    /// </summary>
+    [HttpGet("{id:long}/finalization-exceptions")]
+    [ProducesResponseType(typeof(IReadOnlyList<FinalizationException>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<FinalizationException>>> GetFinalizationExceptions(long id) =>
+        Ok(await service.GetFinalizationExceptionsAsync(id));
 }

@@ -5,7 +5,7 @@ using ShepherdAPI.Api.Infrastructure;
 namespace ShepherdAPI.Api.Services;
 
 /// <summary>
-/// Turns the finalization procedure's failed-check errors (SQL 50501-50507, plus 50500) into a
+/// Turns the finalization procedure's failed-check errors (SQL 50500-50507 and 50510) into a
 /// <see cref="CatalogException"/> whose body names the offending Executions, phases or observations.
 /// The procedure ends each such message with a machine-readable suffix, for example
 /// <c> [ExecutionIDs=12,15;Total=2]</c>; each member becomes a ProblemDetails extension
@@ -19,7 +19,8 @@ public static partial class FinalizationErrors
 
         var entry = ErrorCatalog.FindBySqlNumber(ex.Number);
         if (entry is null || ex.Number < ErrorCatalog.FinalizationRangeStart || ex.Number >= ErrorCatalog.FinalizationRangeStart + ErrorCatalog.RangeSize
-            || ex.Number == ErrorCatalog.SnapshotInsertNotPermitted.SqlNumber)
+            || ex.Number == ErrorCatalog.SnapshotInsertNotPermitted.SqlNumber
+            || ex.Number == ErrorCatalog.FinalizationExceptionInsertNotPermitted.SqlNumber)
         {
             return false;
         }

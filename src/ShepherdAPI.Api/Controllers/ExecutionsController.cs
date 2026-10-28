@@ -20,7 +20,7 @@ public class ExecutionsController(IRecordingService service) : ControllerBase
     /// <summary>
     /// Creates an Execution. Refused with 404 if the iteration does not exist; otherwise with 409 and
     /// <c>code</c> = <c>version-locked</c> when the ExperimentVersion is locked, or
-    /// <c>invalid-rule-configuration</c> when the phase's active ScoreRules are missing or do not total
+    /// <c>invalid-rule-configuration</c> when the phase's ScoreRules are missing or do not total
     /// exactly 100.00 (the body then lists those rules, the expected total and the actual total).
     /// </summary>
     [HttpPost]
@@ -35,10 +35,16 @@ public class ExecutionsController(IRecordingService service) : ControllerBase
     }
 
     /// <summary>
-    /// Replaces the run-facts that remain mutable until EndUTC is set. Returns 409 once EndUTC is
-    /// already set, or once the governing ExperimentVersion is locked (docs/ARCHITECTURE.md §5).
+    /// Replaces the run-facts that remain mutable until EndUTC is set. Returns 409 version-locked once the governing
+    /// ExperimentVersion is locked, and 409 execution-run-facts-frozen once EndUTC is already set; the lock error takes
+    /// precedence (docs/ARCHITECTURE.md §5).
     /// </summary>
     [HttpPut("{id:long}/run-facts")]
+    [ProducesResponseType(typeof(Execution), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+
     public async Task<ActionResult<Execution>> UpdateRunFacts(long id, UpdateExecutionRunFactsRequest request) =>
         Ok(await service.UpdateExecutionRunFactsAsync(id, request));
 }
